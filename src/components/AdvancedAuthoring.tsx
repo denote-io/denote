@@ -44,6 +44,7 @@ export interface AdvancedAuthoringProps {
   nativeFullscreen?: EnterNativeFullscreen;
   registerCommentsAction?: (open: () => void) => () => void;
   registerSpeechAction?: (open: (dictation: boolean) => void) => () => void;
+  registerAuthoringAction?: (feature: "text-styling" | "presentation", open: () => void) => () => void;
   request: (pluginId: string, providerId: string, request: PluginAuthoringRequest) => Promise<PluginAuthoringResult>;
   loadComments: (pluginId: string) => Promise<NoteCommentsSnapshot>;
   saveComments: (pluginId: string, hash: string, document: NoteCommentsDocument, source: string) => Promise<NoteCommentsSnapshot>;
@@ -76,6 +77,8 @@ export function AdvancedAuthoring(props: AdvancedAuthoringProps) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [initializingStyles, setInitializingStyles] = useState(() => providers.some((provider) => provider.feature === "text-styling"));
+  const initializingStylesRef = useRef(initializingStyles);
+  initializingStylesRef.current = initializingStyles;
   const [styleNotice, setStyleNotice] = useState("");
   const alive = useRef(true);
   const styling = providers.find((provider) => provider.feature === "text-styling");
@@ -179,6 +182,18 @@ export function AdvancedAuthoring(props: AdvancedAuthoringProps) {
     return callbacks.current.registerSpeechAction?.((dictation) => openRef.current("speech", dictation));
   }, [props.speech?.pluginId, props.speech?.workspaceScope, path]);
   useEffect(() => {
+    if (!styling) return;
+    return callbacks.current.registerAuthoringAction?.("text-styling", () => {
+      if (callbacks.current.readOnly) throw new Error("This note is read-only. Text style is unavailable.");
+      if (initializingStylesRef.current) throw new Error("Text styles are still loading. Try again in a moment.");
+      openRef.current("styles");
+    });
+  }, [stylingKey, path]);
+  useEffect(() => {
+    if (!slides) return;
+    return callbacks.current.registerAuthoringAction?.("presentation", () => setPresentation(true));
+  }, [slides?.pluginId, slides?.id, path]);
+  useEffect(() => {
     if (!active || !props.speech?.open) setDictationRequest(0);
   }, [active, props.speech?.open]);
   useEffect(() => {
@@ -275,21 +290,9 @@ export function AdvancedAuthoring(props: AdvancedAuthoringProps) {
       renderPreview={(source, index) => renderPreview(source, index, binding)} onChange={onChange}
       onClose={() => {
         setPresentation(false); setEditorRevision((value) => value + 1);
-        window.requestAnimationFrame(() => root.current?.querySelector<HTMLButtonElement>('[data-authoring-action="presentation"]')?.focus());
+        window.requestAnimationFrame(() => root.current?.querySelector<HTMLElement>(
+          '.advanced-authoring__editor .cm-content, .advanced-authoring__editor [contenteditable="true"]')?.focus());
       }} /> : <>
-      <div className="authoring-toolbar" aria-label="Advanced authoring">
-        {styling ? <button type="button" className="secondary-button" disabled={readOnly || initializingStyles}
-          data-authoring-action="text-styling"
-          title="Text style (Command/Control-Shift-H)" onPointerDown={(event) => event.preventDefault()} onClick={() => open("styles")}>Text style</button> : null}
-        {comments ? <button type="button" className="secondary-button" title="Comments (Command/Control-Alt-M)"
-          data-authoring-action="note-comments"
-          onPointerDown={(event) => event.preventDefault()} onClick={() => open("comments")}>Comments</button> : null}
-        {slides ? <button type="button" className="secondary-button" title="Open as presentation (Command/Control-Alt-P)"
-          data-authoring-action="presentation"
-          onClick={() => setPresentation(true)}>Open as presentation</button> : null}
-        {props.speech ? <button type="button" className="secondary-button" data-authoring-action="speech"
-          onPointerDown={(event) => event.preventDefault()} onClick={() => open("speech")}>Speech</button> : null}
-      </div>
       {error && !dialog ? <p role="alert" className="authoring-error">{error}</p> : null}
       {styleNotice ? <p role="status" className="authoring-muted">{styleNotice}</p> : null}
       {initializingStyles ? <p role="status">Loading text styles…</p> : <div key={editorRevision} className="advanced-authoring__editor">

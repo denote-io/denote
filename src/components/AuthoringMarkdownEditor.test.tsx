@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { $getRoot, $getSelection, $isRangeSelection, type LexicalEditor, UNDO_COMMAND } from "lexical";
 import { useState } from "react";
@@ -131,7 +131,8 @@ describe("real Markdown authoring integration", () => {
     render(<Harness initial={styled} changed={changed} />);
     const root = await screen.findByRole("textbox", { name: "editable markdown" });
     const editor = (root as HTMLElement & { __lexicalEditor: LexicalEditor }).__lexicalEditor;
-    await user.click(screen.getByRole("button", { name: "Text style" }));
+    fireEvent.keyDown(window, { key: "H", code: "KeyH", ctrlKey: true, shiftKey: true });
+    await screen.findByRole("dialog", { name: "Text style" });
     await user.click(screen.getByRole("button", { name: "Clear text style 1" }));
     await waitFor(() => expect(changed).toHaveBeenLastCalledWith(original));
     expect(screen.getByRole("textbox", { name: "editable markdown" })).toBe(root);
@@ -163,7 +164,8 @@ describe("real Markdown authoring integration", () => {
       if (!text) throw new Error("Missing invented selection.");
       text.select(0, 8);
     }, { discrete: true }));
-    await user.click(screen.getByRole("button", { name: "Text style" }));
+    fireEvent.keyDown(window, { key: "H", code: "KeyH", ctrlKey: true, shiftKey: true });
+    await screen.findByRole("dialog", { name: "Text style" });
     await user.selectOptions(screen.getByLabelText("Color"), "red");
     await user.click(screen.getByRole("button", { name: "Apply style" }));
     const expected = original.replace("Color me", "=red=Color me=red=");

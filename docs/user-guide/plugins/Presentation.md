@@ -14,7 +14,8 @@ custom-example: preserved without rewriting
 ---
 # A small invented presentation
 
-Enable **Markdown presentation slides**, then choose **Open as presentation**.
+Enable **Markdown presentation slides**, then run **Open as presentation** from
+the command palette or press `Command-Option-P` / `Ctrl-Alt-P`.
 
 - Source and preview stay together.
 - The complete deck remains one Markdown file.

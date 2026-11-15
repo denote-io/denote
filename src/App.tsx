@@ -1839,6 +1839,7 @@ function Workspace({ appLock }: { appLock: AppLockActions }) {
   }, [activeSensitiveTool, activePluginSidebar, workspace?.vaultPath, workspace?.encryption.enabled, workspace?.encryption.unlocked,
     showSidebarView, clearCredentialLink]);
   const commentOpeners = useRef(new Map<string, { vault: string; path: string; open: () => void }>());
+  const authoringOpeners = useRef(new Map<string, { vault: string; path: string; open: () => void }>());
   const readComments = useCallback(async (pluginId: string, vault: string) => {
     const generation = vaultGeneration.current;
     if (workspaceLockedRef.current || workspaceVaultPathRef.current !== vault) {
@@ -9931,11 +9932,14 @@ function Workspace({ appLock }: { appLock: AppLockActions }) {
         (feature === "text-styling" && Boolean(activeFileTab.readOnly)),
       run: () => {
         if (feature === "note-comments") { openNoteComments(); return; }
-        const pane = [...document.querySelectorAll<HTMLElement>("[data-pane-id]")].find((pane) =>
-          pane.dataset.paneId === paneStateRef.current.focusedPaneId);
-        const button = pane?.querySelector<HTMLButtonElement>(`[data-authoring-action="${feature}"]`);
-        if (!button || button.disabled) throw new Error("Return to an available Markdown note before using this authoring action.");
-        button.click();
+        const { focusedPaneId, panes } = paneStateRef.current;
+        const focused = panes.find((pane) => pane.id === focusedPaneId);
+        const opener = authoringOpeners.current.get(`${focusedPaneId}\u0000${feature}`);
+        if (!opener || opener.path !== focused?.activePath || opener.vault !== workspaceVaultPathRef.current ||
+            workspaceLockedRef.current) {
+          throw new Error("Return to an available Markdown note before using this authoring action.");
+        }
+        opener.open();
       },
     })),
     ...(codeProvider ? [
@@ -10813,6 +10817,12 @@ function Workspace({ appLock }: { appLock: AppLockActions }) {
           const entry = { vault: workspace.vaultPath, path: paneTab.path, open };
           commentOpeners.current.set(pane.id, entry);
           return () => { if (commentOpeners.current.get(pane.id) === entry) commentOpeners.current.delete(pane.id); };
+        }}
+        registerAuthoringAction={(feature, open) => {
+          const key = `${pane.id}\u0000${feature}`;
+          const entry = { vault: workspace.vaultPath, path: paneTab.path, open };
+          authoringOpeners.current.set(key, entry);
+          return () => { if (authoringOpeners.current.get(key) === entry) authoringOpeners.current.delete(key); };
         }}
         request={pluginController.requestAuthoring}
         loadComments={async (pluginId) => {

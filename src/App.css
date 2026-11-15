@@ -5907,9 +5907,7 @@ button.tag-chip:active,
 }
 
 .vault-unlock label,
-.encryption-dialog__form label,
-.app-lock-settings__fields label,
-.app-lock-settings__timeout {
+.encryption-dialog__form label {
   display: grid;
   gap: 6px;
   color: var(--text-secondary);
@@ -5917,9 +5915,7 @@ button.tag-chip:active,
 }
 
 .vault-unlock input,
-.encryption-dialog__form input,
-.app-lock-settings__fields input,
-.app-lock-settings__timeout select {
+.encryption-dialog__form input {
   width: 100%;
   height: 38px;
   padding: 0 10px;
@@ -5934,23 +5930,123 @@ button.tag-chip:active,
   color: var(--danger) !important;
 }
 
-.app-lock-settings__fields {
+.app-lock-settings__section,
+.app-lock-settings__heading {
   display: grid;
-  gap: 12px;
 }
 
-.app-lock-settings__fields p {
+.app-lock-settings__section {
+  gap: 10px;
+}
+
+.app-lock-settings__heading {
+  gap: 3px;
+  padding: 0 2px;
+}
+
+.app-lock-settings__heading h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.app-lock-settings__heading p,
+.app-lock-settings__note {
   margin: 0;
   color: var(--text-tertiary);
   font-size: 11px;
-  line-height: 1.55;
+  line-height: 1.45;
+}
+
+.app-lock-settings .editor-setting:has(input:disabled) {
+  cursor: default;
+}
+
+.app-lock-settings .editor-setting:has(input:disabled) strong {
+  color: var(--text-tertiary);
+}
+
+.app-lock-settings__inline-action {
+  justify-self: start;
+}
+
+.app-lock-settings__field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
+  align-items: center;
+  gap: 16px;
+  padding: 11px 2px;
+  border-bottom: 1px solid var(--border);
+}
+
+.app-lock-settings__field > span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.app-lock-settings__field label {
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.app-lock-settings__field small {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.app-lock-settings__field input,
+.app-lock-settings__field select {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  padding: 0 9px;
+  color: var(--text-primary);
+  background: var(--editor-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  font: inherit;
+  font-size: 12px;
+}
+
+.app-lock-settings__field input:focus-visible,
+.app-lock-settings__field select:focus-visible {
+  border-color: var(--accent);
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.app-lock-settings__field input:disabled,
+.app-lock-settings__field select:disabled {
+  color: var(--text-tertiary);
+  cursor: not-allowed;
+}
+
+.app-lock-settings__message {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.app-lock-settings__message--error {
+  color: var(--danger);
 }
 
 .app-lock-settings__actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-end;
   gap: 8px;
+}
+
+@media (max-width: 680px) {
+  .app-lock-settings__field {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
 }
 
 .vault-unlock__alternate {
@@ -6770,6 +6866,7 @@ kbd {
 
 .editor-settings-dialog__body {
   display: grid;
+  align-content: start;
   gap: 16px;
   padding: 18px;
 }

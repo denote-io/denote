@@ -900,7 +900,11 @@ without a continuing animation.
 
 Text styling, comments, and presentations reuse the compact native controls,
 shared button hierarchy, semantic theme tokens, and visible two-pixel focus
-ring. Text style and Comments open native dialogs, restore editor focus, and
+ring. They add no button row above the note: the document starts directly
+below the shared formatting toolbar. Text style and Open as presentation run
+from the command palette or their shortcuts; Comments and Speech also use their
+activity-rail actions. Leaving a presentation returns focus to the editor.
+Text style and Comments open native dialogs, restore editor focus, and
 retain drafts after errors. Comment rows show written whole-note, source-line,
 resolved, missing-text, or ambiguous-text states. Reattachment and deletion are
 explicit keyboard-operable actions; color never represents comment state.
@@ -1130,6 +1134,11 @@ enablement and independent password/device methods, labeled password fields,
 and a bounded inactivity select with **Disabled** selected initially.
 **Save app lock** is the single primary action; **Lock app now**, password
 changes, and the dialog's **Done** action remain secondary.
+The section reuses the Editor section's rhythm: 12-pixel sentence-case
+headings with 11-pixel tertiary descriptions, one-pixel row dividers, checkbox
+rows with a title and description, and label/field rows whose 32-pixel fields
+sit in a right-hand column and stack below 680 pixels. Content aligns to the
+top of the scrolling body; rows and buttons never stretch to fill spare height.
 
 The app unlock surface reuses the locked-vault card and shared control tokens,
 but says **App password** and never shows vault names, paths, switchers, note

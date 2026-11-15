@@ -4,8 +4,7 @@ This note contains invented practice text. Opening it does not enable a plugin,
 download a model, or request microphone access.
 
 Enable **Speech, voice notes, and transcription** in **Settings → Plugins**.
-Open this note and choose **Speech** in the activity rail, note toolbar, or
-command palette. Its sidebar works beside Rich and Source; placing the caret
+Open this note and choose **Speech** in the activity rail or command palette. Its sidebar works beside Rich and Source; placing the caret
 manually is not required.
 
 Read this sentence with an installed local voice:

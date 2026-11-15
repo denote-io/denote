@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { AppLockSettings } from "./AppLockSettings";
 import type { AppLockStatus } from "../types";
+import appStyles from "../App.css?raw";
 
 const disabled: AppLockStatus = {
   enabled: false,
@@ -38,6 +39,17 @@ describe("AppLockSettings", () => {
     });
     expect(screen.getByLabelText("New app password")).toHaveValue("");
     expect(screen.getByLabelText("Confirm app password")).toHaveValue("");
+  });
+
+  it("keeps Security rows and actions at their natural height in the settings body", () => {
+    render(<><style>{appStyles}</style>
+      <AppLockSettings status={disabled} disabled={false} onConfigure={vi.fn()} onLock={vi.fn()} /></>);
+    const form = screen.getByRole("form", { name: "App lock settings" });
+    expect(window.getComputedStyle(form).alignContent).toBe("start");
+    const actions = screen.getByRole("button", { name: "Save app lock" }).parentElement;
+    expect(actions && window.getComputedStyle(actions).alignItems).toBe("center");
+    expect(screen.getByRole("checkbox", { name: "Enable app lock" }))
+      .toHaveAccessibleDescription("Require an unlock method before showing the workspace.");
   });
 
   it("clears partially entered passwords when settings are closed", async () => {

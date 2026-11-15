@@ -165,8 +165,8 @@ Source remains the complete portable fallback.
 
 ### Text highlighting and coloring
 
-Select plain text in Rich or Source and choose **Text style**, or press
-`Command-Shift-H` / `Ctrl-Shift-H`. Choose **Highlight** or **Text color**, a
+Select plain text in Rich or Source and run **Text style** from the command
+palette, or press `Command-Shift-H` / `Ctrl-Shift-H`. Choose **Highlight** or **Text color**, a
 named color, and **Apply style**.
 
 The explicit Markdown extension is case-sensitive:
@@ -203,7 +203,8 @@ Try [Text styling](<../plugins/Text styling.md>).
 
 ### Note comments
 
-Choose **Comments**, or `Command-Option-M` / `Ctrl-Alt-M`. Select text first for
+Choose **Note comments** in the activity rail, run **Comments** from the command
+palette, or press `Command-Option-M` / `Ctrl-Alt-M`. Select text first for
 a range comment, or choose **Whole note**. Enter a body and choose **Add
 comment**. Each row supports **Edit**, **Resolve**, **Reopen**, confirmed
 **Delete**, and **Show text** when attached. Tab, Shift-Tab, Enter, Space, and
@@ -260,8 +261,8 @@ Try [Note comments](<../plugins/Note comments.md>).
 
 ### Markdown presentation slides
 
-Choose **Open as presentation**, or `Command-Option-P` / `Ctrl-Alt-P`, on an
-ordinary Markdown file. Only this mode treats an exact standalone `---` or
+Run **Open as presentation** from the command palette, or press
+`Command-Option-P` / `Ctrl-Alt-P`, on an ordinary Markdown file. Only this mode treats an exact standalone `---` or
 `===` line as a new slide. In ordinary note mode they remain thematic breaks
 and Setext headings. Separators inside fenced code or an opening YAML
 frontmatter block are not split.
@@ -360,8 +361,7 @@ Try the [Presentation deck](<../plugins/Presentation.md>).
 ## Speech, voice notes, and transcription
 
 Speech is off by default. Enable it under **Accessibility**, open a Markdown
-note, and choose **Speech** in the activity rail, command palette, or note
-toolbar. Its sidebar stays beside the note rather than blocking the editor. Its single
+note, and choose **Speech** in the activity rail or command palette. Its sidebar stays beside the note rather than blocking the editor. Its single
 permission opens trusted host controls; downloaded plugin code never receives
 note text, audio, transcripts, device handles, or filesystem access.
 
