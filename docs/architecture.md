@@ -1413,6 +1413,11 @@ workspace service, absolute path, encryption key, executable UI, HTML, or CSS.
 Content providers cannot share a worker with global clocks. Lock and vault
 switch withdraw contributions synchronously and force-stop their workers.
 
+The note surface renders no authoring button row. Each pane registers its Text
+style, presentation, comments, and speech openers with the host; command-palette
+actions resolve the focused pane's opener and recheck its vault, path, and lock
+state instead of clicking DOM controls. Shortcuts and activity-rail actions open
+the same dialogs, panels, and presentation mode.
 Text styling returns exact ordered source spans and named palette values.
 The host verifies every delimiter/text slice and every explicit formatting
 delta independently. Rich selections reuse the same conservative source

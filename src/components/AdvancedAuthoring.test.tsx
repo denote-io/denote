@@ -25,9 +25,13 @@ const request = vi.fn(async (_plugin: string, _id: string, request: PluginAuthor
     edit: { from: request.from, to: request.to, text: delimiter + request.source.slice(request.from, request.to) + delimiter } };
 });
 
-function Harness({ changed, readOnly = false }: { changed: (source: string) => void; readOnly?: boolean }) {
+type RegisterAuthoringAction = (feature: "text-styling" | "presentation", open: () => void) => () => void;
+function Harness({ changed, readOnly = false, register }: {
+  changed: (source: string) => void; readOnly?: boolean; register?: RegisterAuthoringAction;
+}) {
   const [source, setSource] = useState(original);
   return <AdvancedAuthoring path="Example.md" source={source} readOnly={readOnly} active providers={[provider]}
+    registerAuthoringAction={register}
     lineEnding="lf" displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS} request={request}
     loadComments={async () => { throw new Error("Unexpected comments"); }}
     saveComments={async () => { throw new Error("Unexpected comments"); }}
@@ -35,7 +39,7 @@ function Harness({ changed, readOnly = false }: { changed: (source: string) => v
     renderPreview={() => null} onChange={(source) => { changed(source); setSource(source); }} />;
 }
 
-describe("optional authoring toolbar", () => {
+describe("optional authoring actions", () => {
   it("registers the same comments dialog for host actions and removes the action on teardown", async () => {
     const dispose = vi.fn();
     const register = vi.fn((_open: () => void) => dispose);
@@ -66,11 +70,29 @@ describe("optional authoring toolbar", () => {
     expect(screen.getByLabelText("Exact note source")).toHaveValue(original.replace("Color me", "=blue=Color me=blue="));
   });
 
+  it("keeps plugin buttons out of the editor and opens Text style through the host action", async () => {
+    const dispose = vi.fn();
+    const register = vi.fn<RegisterAuthoringAction>(() => dispose);
+    const view = render(<Harness changed={vi.fn()} register={register} />);
+    await screen.findByLabelText("Exact note source");
+    expect(screen.queryByRole("button")).toBeNull();
+    const open = register.mock.calls.find(([feature]) => feature === "text-styling")?.[1];
+    expect(open).toBeTypeOf("function");
+    act(() => open?.());
+    await screen.findByRole("dialog", { name: "Text style" });
+    view.unmount();
+    expect(dispose).toHaveBeenCalledOnce();
+  });
+
   it("never offers a mutation in read mode or changes a note merely by opening", async () => {
     const changed = vi.fn();
-    render(<Harness changed={changed} readOnly />);
+    const register = vi.fn<RegisterAuthoringAction>(() => () => {});
+    render(<Harness changed={changed} readOnly register={register} />);
     await screen.findByLabelText("Exact note source");
-    expect(screen.getByRole("button", { name: "Text style" })).toBeDisabled();
+    const open = register.mock.calls.find(([feature]) => feature === "text-styling")?.[1];
+    expect(() => open?.()).toThrow("This note is read-only. Text style is unavailable.");
+    fireEvent.keyDown(window, { key: "H", code: "KeyH", ctrlKey: true, shiftKey: true });
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(changed).not.toHaveBeenCalled();
   });
 });

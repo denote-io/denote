@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { errorMessage } from "../lib/api";
 import type { AppLockConfigurationRequest, AppLockStatus } from "../types";
 
@@ -90,100 +90,149 @@ export function AppLockSettings({
     }
   };
 
+  const lockDisabled = disabled || busy;
   return (
     <form className="editor-settings-dialog__body app-lock-settings" aria-label="App lock settings"
       aria-busy={busy} onSubmit={(event) => { event.preventDefault(); void save(); }}>
-      <fieldset className="editor-tab-setting" disabled={disabled || busy}>
-        <legend>App lock</legend>
-        <p>Lock Denote on startup. This hides the workspace, not files on disk. Vault encryption stays separate.</p>
-        <label>
-          <input type="checkbox" checked={enabled} onChange={(event) => {
-            setEnabled(event.currentTarget.checked);
-            clearPasswords();
-            setSaved(false);
-          }} />
-          Enable app lock
-        </label>
-      </fieldset>
+      <AppLockSection title="App lock"
+        description="Lock Denote on startup. This hides the workspace, not files on disk. Vault encryption stays separate.">
+        <div className="editor-settings-list">
+          <AppLockOption label="Enable app lock" description="Require an unlock method before showing the workspace."
+            checked={enabled} disabled={lockDisabled} onChange={(checked) => {
+              setEnabled(checked);
+              clearPasswords();
+              setSaved(false);
+            }} />
+        </div>
+      </AppLockSection>
       {enabled ? (
         <>
-          <fieldset className="editor-tab-setting" disabled={disabled || busy}>
-            <legend>Unlock methods</legend>
-            <label>
-              <input type="checkbox" checked={passwordEnabled} onChange={(event) => {
-                setPasswordEnabled(event.currentTarget.checked);
-                clearPasswords();
-                setSaved(false);
-              }} />
-              App password
-            </label>
-            <label>
-              <input type="checkbox" checked={deviceEnabled}
-                disabled={!status.deviceAuthentication.available && !deviceEnabled}
-                onChange={(event) => { setDeviceEnabled(event.currentTarget.checked); setSaved(false); }} />
-              {status.deviceAuthentication.name}
-            </label>
-            {!status.deviceAuthentication.available ? <p>{status.deviceAuthentication.unavailableReason}</p> : null}
-            <p>Either enabled method can unlock the app. Device authentication is requested before enablement.</p>
-          </fieldset>
-          {passwordEnabled && status.passwordEnabled ? (
-            <button type="button" className="secondary-button" disabled={disabled || busy}
-              onClick={() => { setChangePassword((current) => !current); clearPasswords(); setSaved(false); }}>
-              {changePassword ? "Keep current password" : "Change app password"}
-            </button>
-          ) : null}
-          {newPasswordNeeded ? (
-            <div className="app-lock-settings__fields">
-              <label>
-                <span>New app password</span>
-                <input ref={passwordRef} type="password" autoComplete="new-password"
-                  maxLength={1024} disabled={disabled || busy} />
-              </label>
-              <label>
-                <span>Confirm app password</span>
-                <input ref={confirmationRef} type="password" autoComplete="new-password"
-                  maxLength={1024} disabled={disabled || busy} />
-              </label>
+          <AppLockSection title="Unlock methods"
+            description="Either enabled method can unlock the app. Device authentication is requested before enablement.">
+            <div className="editor-settings-list">
+              <AppLockOption label="App password" description="Use at least 12 characters. Denote cannot recover a forgotten password."
+                checked={passwordEnabled} disabled={lockDisabled} onChange={(checked) => {
+                  setPasswordEnabled(checked);
+                  clearPasswords();
+                  setSaved(false);
+                }} />
+              <AppLockOption label={status.deviceAuthentication.name}
+                description={status.deviceAuthentication.available
+                  ? "Unlock with this device's system authentication."
+                  : status.deviceAuthentication.unavailableReason ?? "Device authentication is unavailable."}
+                checked={deviceEnabled} disabled={lockDisabled || (!status.deviceAuthentication.available && !deviceEnabled)}
+                onChange={(checked) => { setDeviceEnabled(checked); setSaved(false); }} />
+              {newPasswordNeeded ? (
+                <>
+                  <AppLockField label="New app password">
+                    {(id) => <input id={id} ref={passwordRef} type="password" autoComplete="new-password"
+                      maxLength={1024} disabled={lockDisabled} />}
+                  </AppLockField>
+                  <AppLockField label="Confirm app password">
+                    {(id) => <input id={id} ref={confirmationRef} type="password" autoComplete="new-password"
+                      maxLength={1024} disabled={lockDisabled} />}
+                  </AppLockField>
+                </>
+              ) : null}
             </div>
-          ) : null}
-          <label className="app-lock-settings__timeout">
-            <span>Lock after inactivity</span>
-            <select value={minutes} disabled={disabled || busy} onChange={(event) => {
-              setMinutes(event.currentTarget.value);
-              setSaved(false);
-            }}>
-              <option value="">Disabled</option>
-              {[1, 5, 15, 30, 60, 120, 240].map((value) =>
-                <option key={value} value={value}>{value} {value === 1 ? "minute" : "minutes"}</option>,
-              )}
-            </select>
-          </label>
-          <p>Locking stops terminal jobs and native tools. Inactivity locking is disabled until you choose a timeout.</p>
+            {passwordEnabled && status.passwordEnabled ? (
+              <button type="button" className="secondary-button app-lock-settings__inline-action" disabled={lockDisabled}
+                onClick={() => { setChangePassword((current) => !current); clearPasswords(); setSaved(false); }}>
+                {changePassword ? "Keep current password" : "Change app password"}
+              </button>
+            ) : null}
+          </AppLockSection>
+          <AppLockSection>
+            <AppLockField label="Lock after inactivity"
+              description="Locking stops terminal jobs and native tools. Inactivity locking is disabled until you choose a timeout.">
+              {(id, describedBy) => <select id={id} aria-describedby={describedBy} value={minutes} disabled={lockDisabled}
+                onChange={(event) => { setMinutes(event.currentTarget.value); setSaved(false); }}>
+                <option value="">Disabled</option>
+                {[1, 5, 15, 30, 60, 120, 240].map((value) =>
+                  <option key={value} value={value}>{value} {value === 1 ? "minute" : "minutes"}</option>,
+                )}
+              </select>}
+            </AppLockField>
+          </AppLockSection>
         </>
       ) : null}
       {status.passwordEnabled ? (
-        <div className="app-lock-settings__fields">
-          <label>
-            <span>Current app password</span>
-            <input ref={currentRef} type="password" autoComplete="current-password"
-              maxLength={1024} disabled={disabled || busy} />
-          </label>
-          <p>The current app password is required to change or disable app lock. Denote cannot recover a forgotten password.</p>
-        </div>
-      ) : status.enabled ? <p>Confirm with {status.deviceAuthentication.name} to change or disable app lock.</p> : null}
-      {error ? <p className="vault-unlock__error" role="alert">{error}</p> : null}
-      {saved ? <p role="status">App lock saved.</p> : null}
+        <AppLockSection>
+          <AppLockField label="Current app password"
+            description="Required to change or disable app lock. Denote cannot recover a forgotten password.">
+            {(id, describedBy) => <input id={id} aria-describedby={describedBy} ref={currentRef} type="password"
+              autoComplete="current-password" maxLength={1024} disabled={lockDisabled} />}
+          </AppLockField>
+        </AppLockSection>
+      ) : status.enabled ? (
+        <p className="app-lock-settings__note">Confirm with {status.deviceAuthentication.name} to change or disable app lock.</p>
+      ) : null}
+      {error ? <p className="app-lock-settings__message app-lock-settings__message--error" role="alert">{error}</p> : null}
+      {saved ? <p className="app-lock-settings__message" role="status">App lock saved.</p> : null}
       <div className="app-lock-settings__actions">
         {status.enabled ? (
-          <button type="button" className="secondary-button" disabled={disabled || busy}
+          <button type="button" className="secondary-button" disabled={lockDisabled}
             onClick={() => { void onLock().catch((caught: unknown) => setError(errorMessage(caught))); }}>
             Lock app now
           </button>
         ) : null}
-        <button type="submit" className="primary-button" disabled={disabled || busy || (!enabled && !status.enabled)}>
+        <button type="submit" className="primary-button" disabled={lockDisabled || (!enabled && !status.enabled)}>
           {busy ? "Saving…" : "Save app lock"}
         </button>
       </div>
     </form>
+  );
+}
+
+function AppLockSection({ title, description, children }: { title?: string; description?: string; children: ReactNode }) {
+  const id = useId();
+  return (
+    <section className="app-lock-settings__section" aria-labelledby={title ? id : undefined}>
+      {title ? (
+        <div className="app-lock-settings__heading">
+          <h3 id={id}>{title}</h3>
+          {description ? <p>{description}</p> : null}
+        </div>
+      ) : null}
+      {children}
+    </section>
+  );
+}
+
+function AppLockOption({ label, description, checked, disabled, onChange }: {
+  label: string;
+  description: string;
+  checked: boolean;
+  disabled: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  const id = useId();
+  return (
+    <label className="editor-setting">
+      <input type="checkbox" aria-labelledby={`${id}-label`} aria-describedby={`${id}-description`}
+        checked={checked} disabled={disabled} onChange={(event) => onChange(event.currentTarget.checked)} />
+      <span>
+        <strong id={`${id}-label`}>{label}</strong>
+        <small id={`${id}-description`}>{description}</small>
+      </span>
+    </label>
+  );
+}
+
+function AppLockField({ label, description, children }: {
+  label: string;
+  description?: string;
+  children: (id: string, describedBy: string | undefined) => ReactNode;
+}) {
+  const id = useId();
+  const describedBy = description ? `${id}-description` : undefined;
+  return (
+    <div className="app-lock-settings__field">
+      <span>
+        <label htmlFor={id}>{label}</label>
+        {description ? <small id={describedBy}>{description}</small> : null}
+      </span>
+      {children(id, describedBy)}
+    </div>
   );
 }

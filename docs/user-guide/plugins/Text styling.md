@@ -9,7 +9,8 @@ Keep meaning in words, not only in color. Here is
 =blue:text=an example foreground style=blue:text= with an underline and a written
 color name in its tooltip.
 
-Select a plain phrase on this line, choose **Text style**, then a named
+Select a plain phrase on this line, run **Text style** from the command palette
+or press `Command-Shift-H` / `Ctrl-Shift-H`, then choose a named
 highlight or foreground color. Switch to **Source** to inspect the exact
 delimiters. **Styled excerpts → Clear** removes one extension without
 reformatting surrounding Markdown.

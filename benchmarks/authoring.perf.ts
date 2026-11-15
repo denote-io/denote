@@ -32,6 +32,14 @@ test.afterEach(async ({ page }) => {
   expect(await page.evaluate(() => window.__DENOTE_AUTHORING__.unexpectedCommands)).toEqual([]);
 });
 
+async function runCommand(page: Page, title: string) {
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+p" : "Control+p");
+  await page.getByRole("combobox", { name: "Search commands or filenames across vaults" }).fill(title);
+  await page.getByRole("option", { name: new RegExp(title) }).click();
+}
+
+const noteComments = (page: Page) => page.locator(".activity-rail").getByRole("button", { name: /^Note comments(?:,|$)/ });
+
 async function selectRichText(page: Page, phrase: string) {
   const paragraph = page.getByText("A short phrase for review.", { exact: true });
   const from = (await paragraph.textContent())?.indexOf(phrase) ?? -1;
@@ -95,9 +103,7 @@ test("real approved workers format exact source and keep comments portable throu
   await expect(page.locator(".denote-text-style").filter({ hasText: "Existing excerpt" })).toBeVisible();
   const original = await page.evaluate(() => window.__DENOTE_AUTHORING__.documents["Authoring.md"]);
   await selectRichText(page, "short phrase");
-  await page.keyboard.press(process.platform === "darwin" ? "Meta+p" : "Control+p");
-  await page.getByRole("combobox", { name: "Search commands or filenames across vaults" }).fill("Text style");
-  await page.getByRole("option", { name: /Text style/ }).click();
+  await runCommand(page, "Text style");
   await expect(page.getByRole("dialog")).toHaveAccessibleName("Text style");
   await page.getByRole("combobox", { name: "Color", exact: true }).selectOption("green");
   await page.getByRole("button", { name: "Apply style", exact: true }).click();
@@ -110,7 +116,7 @@ test("real approved workers format exact source and keep comments portable throu
     selection?.removeAllRanges(); selection?.addRange(range);
     document.dispatchEvent(new Event("selectionchange"));
   });
-  await page.getByRole("button", { name: "Comments", exact: true }).click();
+  await noteComments(page).click();
   await page.getByLabel("Comment", { exact: true }).fill("An invented local comment.");
   await page.getByRole("button", { name: "Add comment", exact: true }).click();
   await expect.poll(() => page.evaluate(() => window.__DENOTE_AUTHORING__.comments.document.notes["Authoring.md"]?.length)).toBe(1);
@@ -120,7 +126,7 @@ test("real approved workers format exact source and keep comments portable throu
   const editor = page.locator(".markdown-editor-shell .cm-content");
   await editor.fill(`${styled}\nshort phrase\n`);
   await expect.poll(() => page.evaluate(() => window.__DENOTE_AUTHORING__.documents["Authoring.md"])).toBe(`${styled}\nshort phrase\n`);
-  await page.getByRole("button", { name: "Comments", exact: true }).click();
+  await noteComments(page).click();
   await expect(page.getByText("Orphaned: ambiguous text", { exact: true })).toBeVisible();
   await page.getByRole("combobox", { name: "Attach to", exact: true }).selectOption("note");
   await page.getByRole("button", { name: "Attach to whole note", exact: true }).click();
@@ -136,7 +142,7 @@ test("real approved workers format exact source and keep comments portable throu
 test("presentation source, full-screen navigation, autoplay and return release resources without rewriting", async ({ page }) => {
   await page.getByRole("button", { name: "Deck.md", exact: true }).click();
   const original = await page.evaluate(() => window.__DENOTE_AUTHORING__.documents["Deck.md"]);
-  await page.getByRole("button", { name: "Open as presentation", exact: true }).click();
+  await runCommand(page, "Open as presentation");
   await expect(page.getByText("Slide 1 of 2", { exact: true })).toBeVisible();
   await expect(page.locator(".presentation-slide")).toContainText("First slide");
   await page.getByRole("button", { name: "Present", exact: true }).click();
@@ -153,7 +159,8 @@ test("presentation source, full-screen navigation, autoplay and return release r
   await page.keyboard.press("Escape");
   await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);
   await page.getByRole("button", { name: "Return to note", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Open as presentation", exact: true })).toBeVisible();
+  await expect(page.locator(".presentation-editor")).toHaveCount(0);
+  await expect(page.locator(".authoring-toolbar")).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => window.__DENOTE_AUTHORING__.documents["Deck.md"])).toBe(original);
   expect(await page.evaluate(() => window.__DENOTE_AUTHORING__.saves)).toEqual([]);
   await expect(page.getByRole("alert")).toHaveCount(0);
@@ -179,7 +186,7 @@ test("the grey sidebar badge follows only the active note's open comments", asyn
   await expect(comments).toHaveAccessibleName("Note comments, 1 open comment");
   await page.getByRole("button", { name: "Deck.md", exact: true }).click();
   await expect(badge).toHaveCount(0);
-  await page.getByRole("button", { name: "Open as presentation", exact: true }).click();
+  await runCommand(page, "Open as presentation");
   await page.getByRole("button", { name: "Play", exact: true }).click();
   await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
   await comments.click();
@@ -249,7 +256,7 @@ test("late speech activation and removal preserve an already open presentation",
   await page.reload();
   await page.getByRole("button", { name: "Deck.md", exact: true }).click();
   const original = await page.evaluate(() => window.__DENOTE_AUTHORING__.documents["Deck.md"]);
-  await page.getByRole("button", { name: "Open as presentation", exact: true }).click();
+  await runCommand(page, "Open as presentation");
   await expect(page.getByText("Slide 1 of 2", { exact: true })).toBeVisible();
 
   await page.evaluate(() => window.__DENOTE_AUTHORING__.releaseSpeech());
@@ -269,7 +276,7 @@ test("late speech activation and removal preserve an already open presentation",
 test("overview preserves unknown frontmatter and disabling a live provider releases its worker", async ({ page }) => {
   await page.getByRole("button", { name: "Deck.md", exact: true }).click();
   const original = await page.evaluate(() => window.__DENOTE_AUTHORING__.documents["Deck.md"]);
-  await page.getByRole("button", { name: "Open as presentation", exact: true }).click();
+  await runCommand(page, "Open as presentation");
   await expect(page.getByText("Slide 1 of 2", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Overview", exact: true }).click();
   await page.getByRole("button", { name: "Move slide 1 later", exact: true }).click();
@@ -290,14 +297,14 @@ test("overview preserves unknown frontmatter and disabling a live provider relea
   await card.getByRole("button", { name: "Disable and remove code", exact: true }).click();
   await expect.poll(() => page.evaluate(() => window.__DENOTE_AUTHORING__.terminatedWorkers)).toBeGreaterThan(workers);
   await page.getByRole("button", { name: "Close settings", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Open as presentation", exact: true })).toHaveCount(0);
+  await expect(page.locator(".presentation-editor")).toHaveCount(0);
   expect(await page.evaluate(() => window.__DENOTE_AUTHORING__.documents["Deck.md"])).toBe(reordered);
 });
 
 test("native fullscreen fallback owns focus and restores the prior window state", async ({ page }) => {
   await page.evaluate(() => Object.defineProperty(document, "fullscreenEnabled", { configurable: true, get: () => false }));
   await page.getByRole("button", { name: "Deck.md", exact: true }).click();
-  await page.getByRole("button", { name: "Open as presentation", exact: true }).click();
+  await runCommand(page, "Open as presentation");
   await page.getByRole("button", { name: "Present", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Full-screen presentation", exact: true })).toBeVisible();
   expect(await page.evaluate(() => window.__DENOTE_AUTHORING__.nativeFullscreen)).toBe(true);
@@ -311,7 +318,7 @@ test("native fullscreen fallback owns focus and restores the prior window state"
 
 test("dash-separated slides keep Markdown formatting and aligned keyboard playback controls", async ({ page }, info) => {
   await page.getByRole("button", { name: "Deck.md", exact: true }).click();
-  await page.getByRole("button", { name: "Open as presentation", exact: true }).click();
+  await runCommand(page, "Open as presentation");
   await expect(page.getByText("Slide 1 of 2", { exact: true })).toBeVisible();
   const source = [
     "# Presentations using Slides", "", "A demo on how to build presentations using Slides.", "", "---", "",
@@ -372,22 +379,22 @@ test("authoring surfaces retain accessible dark, light, and compact layouts", as
   await page.getByRole("button", { name: "Authoring.md", exact: true }).click();
   await expect(page.locator(".denote-text-style")).toBeVisible();
   await selectRichText(page, "short phrase");
-  await page.getByRole("button", { name: "Text style", exact: true }).click();
+  await runCommand(page, "Text style");
   await page.screenshot({ path: info.outputPath("styles-dark-desktop.png") });
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Switch to light mode", exact: true }).click();
   await page.setViewportSize({ width: 840, height: 700 });
-  await page.getByRole("button", { name: "Text style", exact: true }).click();
+  await runCommand(page, "Text style");
   await page.screenshot({ path: info.outputPath("styles-light-compact.png") });
   await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "Comments", exact: true }).click();
+  await noteComments(page).click();
   await expect(page.getByRole("textbox", { name: "Comment", exact: true })).toBeVisible();
   await page.screenshot({ path: info.outputPath("comments-light-compact.png") });
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Switch to dark mode", exact: true }).click();
   await page.getByRole("button", { name: "Hide outline", exact: true }).click();
   await page.getByRole("button", { name: "Deck.md", exact: true }).click();
-  await page.getByRole("button", { name: "Open as presentation", exact: true }).click();
+  await runCommand(page, "Open as presentation");
   const source = await page.evaluate(() => window.__DENOTE_AUTHORING__.documents["Deck.md"]);
   await page.locator(".presentation-source .cm-content").fill(source.replace("presentation:\n", "presentation:\n  theme: light\n"));
   await expect(page.locator(".presentation-stage")).toHaveAttribute("data-slide-theme", "light");
