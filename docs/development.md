@@ -1657,7 +1657,10 @@ instead of `trybuild2`, whose TOML parser is unmaintained
 The same 29 invalid clone expressions and four unit-return forms remain covered
 by checked-in compiler-diagnostic fixtures; the unit-return fixture denies
 warnings. This is a test-tool migration only, not a change to the GLib runtime.
-
+CI uses current stable Rust, so a new compiler release can change diagnostic
+text. Rust 1.100 required re-blessing the three GLib subclass Send/Sync
+fixtures with `TRYBUILD=overwrite`; the E0277 errors and primary call sites
+are unchanged, and only rustc's supporting note spans moved.
 - GLib 0.18.5 applies the two-line
   [upstream iterator fix](https://github.com/gtk-rs/gtk-rs-core/pull/1343):
   the variadic C out-argument is a mutable pointer passed through `&mut p`,
