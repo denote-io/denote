@@ -631,8 +631,12 @@ The independent host sanitizer retains DOMPurify
 [GHSA-c6gr-qvv4-5v3f](https://github.com/advisories/GHSA-c6gr-qvv4-5v3f).
 Mermaid 0.2.9 also used this patch. Earlier published plugin archives retain
 their immutable bytes and source provenance.
-The build/test toolchain pins Vite 8.3.5 and Rolldown 1.2.15 together, with
-patched Undici 8.12.3. This compiler refresh uses new patch versions for all
+The build/test toolchain pins Vite 8.3.8 and Rolldown 1.2.15 together, with
+patched Undici 8.12.3. Vite 8.3.7 and later fix
+[GHSA-p4f5-76q4-ffq7](https://github.com/advisories/GHSA-p4f5-76q4-ffq7) and
+declare Rolldown `~1.2.18`; the root override deliberately keeps
+archive-compatible Rolldown 1.2.15, and `check:plugins` verifies all 20
+current plugin archive digests unchanged with that pair. This compiler refresh uses new patch versions for all
 11 plugin packages, including Git 0.10.1 and Code intelligence 0.1.2. Earlier
 archive identities remain unchanged. Pin compatible compiler inputs and
 validate all plugin digests plus the frontend build when updating the toolchain;
@@ -1527,17 +1531,20 @@ overrides. KaTeX 0.18.10 and lodash-es 4.18.1 remain fixed in historical Mermaid
 source pins, but leave the current graph with the Pele replacement.
 Deprecated KaTeX 0.18.11 accidentally
 included breaking 0.19 changes and is not a routine patch upgrade. Retain Vite
-8.3.5, archive-compatible Rolldown 1.2.15, and pako 3.0.3. The
+8.3.8, archive-compatible Rolldown 1.2.15, and pako 3.0.3. The
 [pako patch](https://github.com/nodeca/pako/compare/3.0.2...3.0.3)
 preserves the canonical gzip fixture and all 20 current plugin archive sizes
 and SHA-256 digests with the existing `legacyHash` and portable-header settings.
 Do not rewrite old
 ledger entries or repin old versions to fix already-published remediation.
 The host-only frontend updates use Lexical 0.53.0, @mdxeditor/editor 4.5.0,
-@pierre/diffs 1.6.4, lucide-react 1.68.0, mdast-util-to-markdown 2.2.2,
-PDF.js 6.5.438, zbsearch 4.0.2, @types/node 26.6.6,
-@vitejs/plugin-react 6.2.1, and Vitest 5.1.0. Autocomplete 6.20.4 and
-jsdom 30.1.3 remain unchanged; no Tauri-family upgrade is implied.
+@pierre/diffs 1.6.4, lucide-react 1.73.0, mdast-util-to-markdown 2.2.3,
+PDF.js 6.5.438, zbsearch 4.0.4, @types/node 26.6.6,
+@vitejs/plugin-react 6.3.0, Playwright 1.65.0, user-event 14.6.10,
+jsdom 31.0.1, and Vitest 5.1.0. Autocomplete 6.20.4 remains unchanged; no
+Tauri-family upgrade is implied. jsdom 31 resolves unitless computed
+`line-height` to pixels, as browsers do, so style assertions compare the
+resolved pixel value.
 
 After pinning, inspect `npm ls pele mdast-util-from-markdown dompurify
 rolldown`, run full and workspace-root `npm audit --audit-level=low`,
@@ -1568,6 +1575,13 @@ The 2026-11-09 refresh updates `rusqlite` to 0.41.1 and `libsqlite3-sys` to
 Only those two lockfile records change; the Windows-safe Tauri family stays
 unchanged. The [rusqlite 0.41 release](https://github.com/rusqlite/rusqlite/releases/tag/v0.41.0)
 documents the bundled SQLite fix and API changes.
+
+The 2026-11-15 refresh updates `quinn-udp` to 0.5.16 for
+[RUSTSEC-2026-0538](https://rustsec.org/advisories/RUSTSEC-2026-0538) and
+`rustix` to 1.1.6 for the unsound
+[RUSTSEC-2026-0486](https://rustsec.org/advisories/RUSTSEC-2026-0486). Only
+those two lockfile records change; both still accept the existing
+`windows-sys` selections, and the Windows-safe Tauri family stays unchanged.
 
 The lockfile keeps `quinn-proto` at 0.11.19 to fix the advisories published on
 2026-10-12:
@@ -1826,19 +1840,26 @@ notes and issue/PR trackers, and RustSec for each package. Record the date,
 versions examined, exact evidence links, and whether a compatible upstream
 release can replace the local source. Report a compatible fix explicitly.
 
-Last vendored-library check: **2026-11-10**.
+Last vendored-library check: **2026-11-15**.
 Rechecked all seven vendor directories and `[patch.crates-io]` entries before
-starting the release-hardening review. Fresh official sparse-registry
+repairing the frontend Dependabot update. Fresh official sparse-registry
 records, upstream release notes and migration/backport trackers, and the RustSec
 snapshot linked below still show the same compatibility constraints.
-Fresh official sparse-registry records confirm GLib 0.18.5 / 0.22.10,
-GLib macros 0.18.5 / 0.22.9, GTK3 macros 0.18.2 / 0.19.0, URLPattern
+Fresh official sparse-registry records confirm GLib 0.18.5 / 0.22.11,
+GLib macros 0.18.5 / 0.22.11, GTK3 macros 0.18.2 / 0.19.0, URLPattern
 0.3.0 / 0.6.0, notification 2.4.0 / 2.8.1, opener 2.5.5 / 2.7.3, and
 single-instance 2.4.5 / 2.5.5 as the reviewed local/current stable pairs.
+The only new upstream releases are
+[GLib 0.22.11 and GLib macros 0.22.11](https://github.com/gtk-rs/gtk-rs-core/releases/tag/0.22.11),
+published 2026-11-14. They still require the GLib 0.22 stack, contain no 0.18
+backport, and cannot replace the GTK 0.18 types; the
+[0.18 branch](https://github.com/gtk-rs/gtk-rs-core/commits/0.18) is unchanged.
+No compatible upstream fix was found for any vendored library.
 Official registry records, release notes, the
 linked upstream backport and D-Bus migration requests, and the
-[RustSec snapshot](https://github.com/RustSec/advisory-db/tree/28d73fc95e5972af3403225a217def57dcaba3c4/crates)
-confirm the constraints below. **A compatible notification-backend candidate
+[RustSec snapshot](https://github.com/RustSec/advisory-db/tree/4ef2df8e806a65e2f1ecc14f56f51249062b23d6/crates)
+confirm the constraints below; it adds no advisory for a vendored crate.
+**A compatible notification-backend candidate
 is now published:** notify-rust 4.19.0 replaces its default zbus 5 backend with
 zbus 6, satisfies notification 2.4.0's `^4.11` requirement, and retains the
 same Rust 1.89 minimum as 4.18.2. Removing the notification backport still
@@ -1891,8 +1912,8 @@ published compatible GLib release; the
 [0.18 backport request](https://github.com/gtk-rs/gtk-rs-core/pull/2009)
 and [later request](https://github.com/gtk-rs/gtk-rs-core/pull/2022) were closed
 without merging. The current
-[GLib 0.22.10 release](https://github.com/gtk-rs/gtk-rs-core/releases/tag/0.22.10)
-and [GLib macros 0.22.9](https://crates.io/crates/glib-macros/0.22.9) do not
+[GLib 0.22.11 release](https://github.com/gtk-rs/gtk-rs-core/releases/tag/0.22.11)
+and [GLib macros 0.22.11](https://crates.io/crates/glib-macros/0.22.11) do not
 provide replacements compatible with the GTK 0.18 dependency graph.
 [GLib macros 0.18.5](https://crates.io/crates/glib-macros/0.18.5) and
 [GTK3 macros 0.18.2](https://crates.io/crates/gtk3-macros/0.18.2) still require

@@ -107,7 +107,7 @@ describe("GitSigningSettings", () => {
     const paragraph = screen.getByText(/Leave Signing key empty/);
     const style = window.getComputedStyle(paragraph);
     expect(style.fontSize).toBe("11px");
-    expect(style.lineHeight).toBe("1.45");
+    expect(style.lineHeight).toBe("15.95px");
     expect(window.getComputedStyle(screen.getByRole("heading", { name: "Signing credentials" })).fontSize).toBe("11px");
   });
 
