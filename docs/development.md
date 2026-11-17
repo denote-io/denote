@@ -57,9 +57,14 @@ desktop toolchain. `npm test` includes these same tests on every CI platform.
 For website-only watch mode, run `node --test --watch website/*.node.mjs`.
 `build:website` renders the **Plugins** section from `plugins/catalog.json`,
 grouped by the Settings → Plugins categories and linked to each package guide.
-It excludes only the SDK-only Reference plugin and fails on an unknown category
-or a catalog entry without a `plugins/<name>/plugin.json` package, so preview
-the built `dist/website`, not the raw `website/index.html`.
+It excludes only the SDK-only Reference plugin and fails on an unknown category,
+a catalog entry without a `plugins/<name>/plugin.json` package, or a missing or
+non-static icon, so preview the built `dist/website`, not the raw
+`website/index.html`. A new plugin needs `website/assets/plugins/<id>.svg`:
+copy the matching unmodified icon from the `lucide-static` release that matches
+the locked `lucide-react` version, keeping its license comment, and reuse the
+plugin's activity-rail icon when it has one. `LICENSE-lucide.txt` in that folder
+carries the required notice.
 
 GitHub Pages must use **GitHub Actions** as its source. The Pages workflow tests
 and builds pull requests without installing desktop dependencies, then deploys
