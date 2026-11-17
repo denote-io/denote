@@ -55,6 +55,11 @@ Website tests use Node's built-in test runner and synthetic fixtures. Both
 website commands need only Node.js and npm, not a dependency install or the
 desktop toolchain. `npm test` includes these same tests on every CI platform.
 For website-only watch mode, run `node --test --watch website/*.node.mjs`.
+`build:website` renders the **Plugins** section from `plugins/catalog.json`,
+grouped by the Settings → Plugins categories and linked to each package guide.
+It excludes only the SDK-only Reference plugin and fails on an unknown category
+or a catalog entry without a `plugins/<name>/plugin.json` package, so preview
+the built `dist/website`, not the raw `website/index.html`.
 
 GitHub Pages must use **GitHub Actions** as its source. The Pages workflow tests
 and builds pull requests without installing desktop dependencies, then deploys
@@ -1843,25 +1848,28 @@ notes and issue/PR trackers, and RustSec for each package. Record the date,
 versions examined, exact evidence links, and whether a compatible upstream
 release can replace the local source. Report a compatible fix explicitly.
 
-Last vendored-library check: **2026-11-15**.
+Last vendored-library check: **2026-11-17**.
 Rechecked all seven vendor directories and `[patch.crates-io]` entries before
-repairing the frontend Dependabot update. Fresh official sparse-registry
-records, upstream release notes and migration/backport trackers, and the RustSec
-snapshot linked below still show the same compatibility constraints.
-Fresh official sparse-registry records confirm GLib 0.18.5 / 0.22.11,
-GLib macros 0.18.5 / 0.22.11, GTK3 macros 0.18.2 / 0.19.0, URLPattern
-0.3.0 / 0.6.0, notification 2.4.0 / 2.8.1, opener 2.5.5 / 2.7.3, and
-single-instance 2.4.5 / 2.5.5 as the reviewed local/current stable pairs.
-The only new upstream releases are
+listing every catalog plugin on the public website. Fresh official
+sparse-registry records confirm GLib 0.18.5 / 0.22.11, GLib macros
+0.18.5 / 0.22.11, GTK3 macros 0.18.2 / 0.19.0, URLPattern 0.3.0 / 0.6.0,
+notification 2.4.0 / 2.8.1, opener 2.5.5 / 2.7.3, single-instance
+2.4.5 / 2.5.5, and notify-rust 4.18.2 / 4.19.0 as the reviewed local/current
+stable pairs. No upstream release appeared since 2026-11-15: the newest remain
 [GLib 0.22.11 and GLib macros 0.22.11](https://github.com/gtk-rs/gtk-rs-core/releases/tag/0.22.11),
-published 2026-11-14. They still require the GLib 0.22 stack, contain no 0.18
-backport, and cannot replace the GTK 0.18 types; the
-[0.18 branch](https://github.com/gtk-rs/gtk-rs-core/commits/0.18) is unchanged.
-No compatible upstream fix was found for any vendored library.
+which require the GLib 0.22 stack, and the
+[0.18 branch](https://github.com/gtk-rs/gtk-rs-core/commits/0.18) is unchanged
+since 2023-12-30. The
+[single-instance migration](https://github.com/tauri-apps/plugins-workspace/pull/3759)
+and [migration issue](https://github.com/tauri-apps/plugins-workspace/issues/3716)
+remain open. The
+[RustSec snapshot](https://github.com/RustSec/advisory-db/tree/02e2517f457a359fc6d3440ea4560c8ea188fee8/crates)
+adds only an unrelated `actix-http` advisory since the previous check.
+No new compatible upstream fix was found for any vendored library; the
+notify-rust 4.19.0 candidate below is unchanged.
 Official registry records, release notes, the
-linked upstream backport and D-Bus migration requests, and the
-[RustSec snapshot](https://github.com/RustSec/advisory-db/tree/4ef2df8e806a65e2f1ecc14f56f51249062b23d6/crates)
-confirm the constraints below; it adds no advisory for a vendored crate.
+linked upstream backport and D-Bus migration requests, and that RustSec
+snapshot confirm the constraints below; it adds no advisory for a vendored crate.
 **A compatible notification-backend candidate
 is now published:** notify-rust 4.19.0 replaces its default zbus 5 backend with
 zbus 6, satisfies notification 2.4.0's `^4.11` requirement, and retains the
