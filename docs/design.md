@@ -567,7 +567,11 @@ separate marketing system. A file-path spine leads into the real application
 preview; graphite/paper surfaces, moss actions, one-pixel rules, tight corners,
 and the asymmetric mark carry the desktop identity. Platform downloads remain
 visible together, with recommendation treated as supplementary text rather than
-hiding alternatives.
+hiding alternatives. The plugin ledger lists every user-facing catalog plugin with an icon, guide
+link, description, and current version, grouped under the same category labels
+as Settings → Plugins. Icons are website-owned Lucide outlines in the moss
+accent, reusing the activity-rail icon where the app has one, because package
+icons are not a consistent visual set.
 
 Recoverable editor errors use the existing danger banner with a text-labeled
 **Navigate to error** action before the dismiss control. The source editor marks
