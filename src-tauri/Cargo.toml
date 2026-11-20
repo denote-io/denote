@@ -52,7 +52,7 @@ hex = "0.4.3"
 base64 = "0.23.1"
 mime_guess = "2.0.5"
 quick-xml = "0.42"
-rusqlite = { version = "0.41.1", features = ["bundled"] }
+rusqlite = { version = "0.43.0", features = ["bundled"] }
 jiff = { version = "1.0.1", default-features = false, features = ["std"] }
 uuid = { version = "1.26.0", features = ["v4", "serde"] }
 atomic-write-file = "0.3.1"
@@ -107,5 +107,5 @@ objc2-local-authentication = { version = "0.3.2", default-features = false, feat
 [target."cfg(windows)".dependencies]
 windows-native-keyring-store = "1.1.0"
 windows = { version = "0.62.2", features = ["Security_Credentials_UI", "Win32_Foundation", "Win32_System_WinRT"] }
-windows-future = "0.3.2"
+windows-future = "0.100.0"
 windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem", "Win32_Foundation", "Win32_System_Threading", "Win32_System_SystemServices", "Win32_Security", "Win32_Security_Authorization"] }
