@@ -796,6 +796,13 @@ pub fn create_entry(
     Ok(node)
 }
 
+fn is_daily_note_date(date: &str) -> bool {
+    date.len() == 10
+        && !date.starts_with("0000")
+        && jiff::civil::Date::strptime("%Y-%m-%d", date)
+            .is_ok_and(|parsed| parsed.strftime("%Y-%m-%d").to_string() == date)
+}
+
 pub fn open_or_create_daily_note(
     db_path: &Path,
     vault_path: &str,
@@ -803,10 +810,7 @@ pub fn open_or_create_daily_note(
     date: &str,
     vault_key: Option<&[u8; 32]>,
 ) -> AppResult<FileNode> {
-    let parsed = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")
-        .map_err(|_| AppError::InvalidData("Daily notes require a valid YYYY-MM-DD date".into()))?;
-    if date.len() != 10 || date.starts_with("0000") || parsed.format("%Y-%m-%d").to_string() != date
-    {
+    if !is_daily_note_date(date) {
         return Err(AppError::InvalidData(
             "Daily notes require a valid YYYY-MM-DD date".into(),
         ));
@@ -4079,6 +4083,25 @@ mod tests {
         );
         decrypt_vault_contents(&database, root.to_str().unwrap(), &key).unwrap();
         assert_eq!(fs::metadata(&path).unwrap().modified().unwrap(), modified);
+    }
+
+    #[test]
+    fn calendar_daily_notes_accept_only_canonical_calendar_dates() {
+        for date in ["2024-02-29", "0001-01-01", "9999-12-31"] {
+            assert!(super::is_daily_note_date(date), "{date}");
+        }
+        for date in [
+            "2023-02-29",
+            "2026-13-01",
+            "2026-04-31",
+            "2026-1-01",
+            "0000-01-01",
+            "+202-01-01",
+            "2026-01-01 ",
+            "20260101",
+        ] {
+            assert!(!super::is_daily_note_date(date), "{date}");
+        }
     }
 
     #[test]

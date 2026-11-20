@@ -19,9 +19,10 @@ member of this family.
 Seven source-level compatibility backports in `src-tauri/vendor/` preserve that
 runtime graph while fixing GLib's mutable iterator out-argument and replacing
 the unmaintained macro-error, Unicode-property, and split D-Bus dependencies.
-Original crate names, versions, licenses, and source provenance remain intact. Cargo's default
-workspace member is the application; GTK-specific regression tests are explicit
-and run optimized on Linux. The source-aware audit also scans the backports'
+Original crate names, versions, licenses, and source provenance remain intact. The
+application reaches them only through `[patch.crates-io]`, so dependency
+automation cannot edit them; their regression tests run in the separate
+`src-tauri/vendor/` test workspace, and GTK-specific tests run optimized on Linux. The source-aware audit also scans the backports'
 original registry identities because RustSec skips path packages. The
 version-based GLib advisory remains visible, and CI rejects unmaintained
 dependencies and yanked versions. Both audit passes fetch registry metadata,

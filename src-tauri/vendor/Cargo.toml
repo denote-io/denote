@@ -1,0 +1,22 @@
+# Test-only workspace for the reviewed backports. The application consumes
+# these packages only through `[patch.crates-io]` in ../Cargo.toml.
+[workspace]
+members = [
+    "glib",
+    "glib-macros",
+    "gtk3-macros",
+    "tauri-plugin-notification",
+    "tauri-plugin-opener",
+    "tauri-plugin-single-instance",
+    "urlpattern",
+]
+resolver = "3"
+
+[patch.crates-io]
+glib = { path = "glib" }
+glib-macros = { path = "glib-macros" }
+gtk3-macros = { path = "gtk3-macros" }
+tauri-plugin-notification = { path = "tauri-plugin-notification" }
+tauri-plugin-opener = { path = "tauri-plugin-opener" }
+tauri-plugin-single-instance = { path = "tauri-plugin-single-instance" }
+urlpattern = { path = "urlpattern" }

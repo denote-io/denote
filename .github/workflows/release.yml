@@ -173,14 +173,19 @@ jobs:
             cargo test --manifest-path src-tauri/Cargo.toml --locked --package glib --features compiletests --test subclass_compiletest
             cargo test --manifest-path src-tauri/Cargo.toml --locked --release --package glib --lib -- variant_iter collections::strv::test::test_into_strv
           fi
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --package urlpattern
+          # Older tags kept the backports in the application workspace.
+          manifest=src-tauri/Cargo.toml
+          if [ -f src-tauri/vendor/Cargo.toml ]; then manifest=src-tauri/vendor/Cargo.toml; fi
+          cargo test --manifest-path "$manifest" --target-dir src-tauri/target --locked --package urlpattern
 
       - name: Linux D-Bus backport tests
         if: hashFiles('src-tauri/vendor/tauri-plugin-opener/Cargo.toml') != ''
         env:
           DENOTE_TEST_DBUS: "1"
         run: |
-          dbus-run-session -- cargo test --manifest-path src-tauri/Cargo.toml --locked \
+          manifest=src-tauri/Cargo.toml
+          if [ -f src-tauri/vendor/Cargo.toml ]; then manifest=src-tauri/vendor/Cargo.toml; fi
+          dbus-run-session -- cargo test --manifest-path "$manifest" --target-dir src-tauri/target --locked \
             --package tauri-plugin-opener --package tauri-plugin-single-instance \
             --package tauri-plugin-notification --lib linux_backport
 

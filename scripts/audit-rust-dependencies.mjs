@@ -36,6 +36,16 @@ const backports = new Map([
   }],
 ]);
 
+// Cargo locks optional dependencies named only by disabled weak features
+// (https://github.com/rust-lang/cargo/issues/10801). These advisories are
+// ignored only while no workspace compiles the crate.
+const lockfileOnlyAdvisories = [{
+  id: "RUSTSEC-2026-0543",
+  crate: "chrono",
+  reason: "serde_with names it only through disabled weak features",
+}];
+const runtimeFamily = /^(?:tauri(?:-.+)?|tao|wry|webview2.*)$/u;
+
 export function verifyResolvedBackports(metadata, root) {
   if (!Array.isArray(metadata?.packages)) {
     throw new Error("Cargo metadata is missing resolved packages.");
@@ -59,6 +69,10 @@ export function verifyResolvedBackports(metadata, root) {
     throw new Error("The speech helper must use its reviewed local 0.1.0 workspace source.");
   }
   approvedLocalIds.add(helpers[0].id);
+  const members = new Set(metadata.workspace_members ?? []);
+  if (members.size !== 2 || !members.has(application.id) || !members.has(helpers[0].id)) {
+    throw new Error("Backports must stay patch-only outside the application workspace members.");
+  }
   for (const [name, backport] of backports) {
     if (existsSync(join(root, "vendor", name, "Cargo.lock"))) {
       throw new Error(`Vendored ${name} must use the workspace Cargo.lock, not a stale nested lockfile.`);
@@ -78,6 +92,65 @@ export function verifyResolvedBackports(metadata, root) {
       throw new Error(`Unreviewed dependency source for ${entry.name}; RustSec cannot audit it.`);
     }
   }
+}
+
+export function verifyBackportTestWorkspace(metadata, applicationMetadata, root) {
+  if (!Array.isArray(metadata?.packages) || !Array.isArray(applicationMetadata?.packages)) {
+    throw new Error("Cargo metadata is missing resolved packages.");
+  }
+  const members = new Set(metadata.workspace_members ?? []);
+  const local = new Set();
+  for (const [name, backport] of backports) {
+    const matches = metadata.packages.filter((entry) => entry.name === name);
+    if (matches.length !== 1
+      || matches[0].version !== backport.version
+      || matches[0].source !== null
+      || typeof matches[0].manifest_path !== "string"
+      || resolve(matches[0].manifest_path) !== join(root, "vendor", name, "Cargo.toml")
+      || !members.has(matches[0].id)) {
+      throw new Error(`The backport test workspace must test the reviewed local ${name} ${backport.version}.`);
+    }
+    local.add(matches[0].id);
+  }
+  if (members.size !== local.size) {
+    throw new Error("The backport test workspace may contain only the reviewed backports.");
+  }
+  const shipped = new Set(applicationMetadata.packages.map((entry) => `${entry.name}@${entry.version}`));
+  for (const entry of metadata.packages) {
+    if (local.has(entry.id)) continue;
+    if (entry.source !== registry) {
+      throw new Error(`Unreviewed backport test dependency source for ${entry.name}; RustSec cannot audit it.`);
+    }
+    if (runtimeFamily.test(entry.name) && !shipped.has(`${entry.name}@${entry.version}`)) {
+      throw new Error(`Backport tests must use the application's ${entry.name} runtime version, not ${entry.version}.`);
+    }
+  }
+}
+
+export function lockfileOnlyIgnores(lockfile, isCompiled) {
+  const ignores = [];
+  for (const advisory of lockfileOnlyAdvisories) {
+    if (!new RegExp(`^name = "${advisory.crate}"$`, "mu").test(lockfile)) continue;
+    if (isCompiled(advisory.crate)) {
+      console.log(`${advisory.crate} is compiled, so ${advisory.id} stays denied.`);
+      continue;
+    }
+    console.log(`Ignoring ${advisory.id} for lockfile-only ${advisory.crate}: ${advisory.reason}; no workspace compiles it.`);
+    ignores.push(advisory.id);
+  }
+  return ignores;
+}
+
+export function isCompiledIn(manifest, crate) {
+  const result = spawnSync("cargo", [
+    "tree", "--manifest-path", manifest, "--locked", "--workspace", "--all-features",
+    "--target", "all", "--edges", "all", "--invert", crate, "--prefix", "none",
+  ], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024, timeout: 180_000 });
+  if (result.error || result.signal || result.status !== 0) {
+    if (result.stderr) process.stderr.write(result.stderr);
+    throw new Error(`Could not prove whether ${manifest} compiles ${crate}.`, { cause: result.error });
+  }
+  return result.stdout.trim() !== "";
 }
 
 export function projectVendoredSources(lockfile) {
@@ -110,10 +183,11 @@ export function projectVendoredSources(lockfile) {
   return projected;
 }
 
-export function runCargoAudit(file, input) {
+export function runCargoAudit(file, input, ignores = []) {
   const result = spawnSync("cargo", [
     "audit", "--file", file, "--color", "never",
     "--deny", "unmaintained", "--deny", "yanked",
+    ...ignores.flatMap((id) => ["--ignore", id]),
   ], {
     input,
     encoding: "utf8",
@@ -152,15 +226,32 @@ function audit() {
     { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"], maxBuffer: 16 * 1024 * 1024 },
   ));
   verifyResolvedBackports(metadata, root);
-  const projected = projectVendoredSources(readFileSync(lockfile, "utf8"));
+  const testManifest = join(root, "vendor", "Cargo.toml");
+  const testLockfile = join(root, "vendor", "Cargo.lock");
+  const testMetadata = JSON.parse(execFileSync(
+    "cargo",
+    ["metadata", "--manifest-path", testManifest, "--locked", "--format-version", "1"],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"], maxBuffer: 16 * 1024 * 1024 },
+  ));
+  verifyBackportTestWorkspace(testMetadata, metadata, root);
+  const application = readFileSync(lockfile, "utf8");
+  const projected = projectVendoredSources(application);
+  const ignores = lockfileOnlyIgnores(application, (crate) => isCompiledIn(manifest, crate));
+  const testIgnores = lockfileOnlyIgnores(
+    readFileSync(testLockfile, "utf8"),
+    (crate) => isCompiledIn(testManifest, crate),
+  );
 
   console.log("Auditing resolved registry dependencies.");
-  runCargoAudit(lockfile);
+  runCargoAudit(lockfile, undefined, ignores);
 
   // RustSec skips path sources. Audit their original registry identities too,
   // without changing Cargo.lock or hiding the version-based GLib advisory.
   console.log("Auditing published backport baselines; optimized tests verify the GLib source fix.");
-  runCargoAudit("-", projected);
+  runCargoAudit("-", projected, ignores);
+
+  console.log("Auditing backport test dependencies.");
+  runCargoAudit(testLockfile, undefined, testIgnores);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
