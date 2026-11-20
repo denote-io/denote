@@ -1866,8 +1866,8 @@ sandbox immediately, including while initialization is still pending.
 `denote.mermaid` 0.3.0 bundles exactly Pele 1.12.0 in the downloaded renderer
 package and retains its Denote 0.5.2 minimum. Pele has no runtime dependencies;
 Mermaid.js, its parsers/layout engines, plugin-local DOMPurify, and KaTeX leave
-the current plugin graph. The independent host sanitizer remains on DOMPurify
-3.4.17. Older archives retain their immutable bytes, licenses, and source
+the current plugin graph. The independent host sanitizer uses DOMPurify
+3.4.18. Older archives retain their immutable bytes, licenses, and source
 provenance.
 
 Pele renders synchronously inside the same opaque iframe and existing

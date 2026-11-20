@@ -107,5 +107,5 @@ objc2-local-authentication = { version = "0.3.2", default-features = false, feat
 [target."cfg(windows)".dependencies]
 windows-native-keyring-store = "1.1.0"
 windows = { version = "0.62.2", features = ["Security_Credentials_UI", "Win32_Foundation", "Win32_System_WinRT"] }
-windows-future = "0.100.0"
+windows-future = "0.3.2"
 windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem", "Win32_Foundation", "Win32_System_Threading", "Win32_System_SystemServices", "Win32_Security", "Win32_Security_Authorization"] }
