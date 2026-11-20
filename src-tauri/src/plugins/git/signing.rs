@@ -370,7 +370,9 @@ fn validate_selector(value: &str) -> AppResult<()> {
 pub(crate) fn parse_secret_key_fingerprints(output: &str) -> AppResult<Vec<String>> {
     let mut fingerprints = Vec::new();
     let mut primary = false;
-    let now = chrono::Utc::now().timestamp().max(0) as u64;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_secs());
     for line in output.lines() {
         let fields: Vec<_> = line.split(':').collect();
         match fields.first().copied() {

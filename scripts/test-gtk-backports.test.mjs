@@ -12,8 +12,10 @@ afterEach(() => {
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "denote-gtk-fixture-"));
   roots.push(root);
-  writeFileSync(join(root, "Cargo.lock"), "# Synthetic lockfile\nversion = 4\n");
+  writeFileSync(join(root, "Cargo.lock"), "# Synthetic application lockfile\nversion = 4\n");
   writeFileSync(join(root, "Cargo.toml"), "[patch.crates-io]\nsynthetic = { path = \"vendor/synthetic\" }\n");
+  mkdirSync(join(root, "vendor"), { recursive: true });
+  writeFileSync(join(root, "vendor", "Cargo.lock"), "# Synthetic backport test lockfile\nversion = 4\n");
   for (const name of ["glib", "glib-macros"]) {
     const directory = join(root, "vendor", name);
     mkdirSync(join(directory, "src"), { recursive: true });
@@ -34,11 +36,12 @@ function metadata(root) {
 }
 
 describe("isolated GTK backport workspace", () => {
-  it("copies exact source and the reviewed lockfile but only the two required patches", () => {
+  it("copies exact source and the reviewed backport lockfile but only the two required patches", () => {
     const root = fixture();
     const directory = prepareGtkWorkspace(root);
     expect(directory.startsWith(join(root, "target", "gtk-backports-"))).toBe(true);
-    expect(readFileSync(join(directory, "Cargo.lock"), "utf8")).toBe(readFileSync(join(root, "Cargo.lock"), "utf8"));
+    expect(readFileSync(join(directory, "Cargo.lock"), "utf8"))
+      .toBe(readFileSync(join(root, "vendor", "Cargo.lock"), "utf8"));
     const manifest = readFileSync(join(directory, "Cargo.toml"), "utf8");
     expect(manifest).toContain('[workspace]');
     expect(manifest).toContain('glib = { path = "vendor/glib" }');

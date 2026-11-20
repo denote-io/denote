@@ -5,8 +5,10 @@ import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  lockfileOnlyIgnores,
   projectVendoredSources,
   runCargoAudit,
+  verifyBackportTestWorkspace,
   verifyResolvedBackports,
 } from "./audit-rust-dependencies.mjs";
 
@@ -49,8 +51,25 @@ function metadata(workspace = root) {
         manifest_path: join(workspace, "vendor", name, "Cargo.toml"),
       })),
     ],
+    workspace_members: ["synthetic-application", "synthetic-speech-helper"],
     workspace_default_members: ["synthetic-application"],
   };
+}
+
+const registry = "registry+https://github.com/rust-lang/crates.io-index";
+
+function testMetadata() {
+  const input = metadata();
+  input.packages = input.packages.filter((entry) => entry.name in versions);
+  input.packages.push({ id: "synthetic-tauri", name: "tauri", version: "2.11.6", source: registry });
+  input.workspace_members = input.packages.filter((entry) => entry.source === null).map((entry) => entry.id);
+  return input;
+}
+
+function shippedMetadata() {
+  const input = metadata();
+  input.packages.push({ id: "synthetic-tauri", name: "tauri", version: "2.11.6", source: registry });
+  return input;
 }
 
 function lockfile() {
@@ -87,6 +106,61 @@ describe("Rust source-backport audit", () => {
     expect(() => verifyResolvedBackports(defaults, root)).toThrow(/default/i);
   });
 
+  it("keeps backports patch-only so dependency automation cannot edit their manifests", () => {
+    const input = metadata();
+    input.workspace_members.push("synthetic-glib");
+    expect(() => verifyResolvedBackports(input, root)).toThrow(/patch-only/);
+  });
+
+  describe("backport test workspace", () => {
+    it("accepts only the reviewed backports with the application's runtime family", () => {
+      expect(() => verifyBackportTestWorkspace(testMetadata(), shippedMetadata(), root)).not.toThrow();
+    });
+
+    it.each([
+      ["a missing member", (input) => { input.workspace_members.shift(); }, /glib/],
+      ["an extra member", (input) => { input.workspace_members.push("synthetic-tauri"); }, /only the reviewed/],
+      ["a registry backport", (input) => { input.packages[0].source = registry; }, /glib/],
+      ["a Git dependency", (input) => {
+        input.packages.push({ id: "synthetic-git", name: "synthetic-git", source: "git+https://example.invalid/synthetic" });
+      }, /Unreviewed/],
+      ["a different runtime version", (input) => { input.packages.at(-1).version = "2.12.7"; }, /tauri runtime/],
+    ])("rejects %s", (_label, change, message) => {
+      const input = testMetadata();
+      change(input);
+      expect(() => verifyBackportTestWorkspace(input, shippedMetadata(), root)).toThrow(message);
+    });
+  });
+
+  describe("lockfile-only advisories", () => {
+    beforeEach(() => {
+      vi.spyOn(console, "log").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    const chrono = '[[package]]\nname = "chrono"\nversion = "0.4.45"\n';
+
+    it("ignores the chrono advisory only while no workspace compiles chrono", () => {
+      const isCompiled = vi.fn(() => false);
+      expect(lockfileOnlyIgnores(lockfile() + chrono, isCompiled)).toEqual(["RUSTSEC-2026-0543"]);
+      expect(isCompiled).toHaveBeenCalledWith("chrono");
+      expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Ignoring RUSTSEC-2026-0543/));
+    });
+
+    it("keeps the advisory denied once chrono is compiled", () => {
+      expect(lockfileOnlyIgnores(lockfile() + chrono, () => true)).toEqual([]);
+    });
+
+    it("does not add an exception for a lockfile without chrono", () => {
+      const isCompiled = vi.fn();
+      expect(lockfileOnlyIgnores(lockfile(), isCompiled)).toEqual([]);
+      expect(isCompiled).not.toHaveBeenCalled();
+    });
+  });
+
   describe("required Rust registry checks", () => {
     beforeEach(() => {
       vi.mocked(spawnSync).mockReset();
@@ -118,6 +192,14 @@ describe("Rust source-backport audit", () => {
         "audit", "--file", "-", "--color", "never",
         "--deny", "unmaintained", "--deny", "yanked",
       ], expect.objectContaining({ input: projected, encoding: "utf8" }));
+    });
+
+    it("passes only the requested lockfile-only exceptions to cargo-audit", () => {
+      vi.mocked(spawnSync).mockReturnValue(result());
+
+      runCargoAudit("synthetic.lock", undefined, ["RUSTSEC-2026-0543"]);
+
+      expect(spawnSync.mock.calls[0][1].slice(-2)).toEqual(["--ignore", "RUSTSEC-2026-0543"]);
     });
 
     it("keeps the version-based unsoundness warning visible without ignoring its advisory", () => {

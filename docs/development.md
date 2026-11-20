@@ -1505,9 +1505,15 @@ npx tsc --noEmit -p tsconfig.node.json
 ## Dependency update boundaries
 
 Dependabot excludes `plugins/**` and `packages/plugin-sdk/**` from npm version
-updates, and `vendor/**` relative to `/src-tauri` from Cargo version updates.
-These are immutable plugin source inputs or reviewed compatibility backports,
-not independently upgradable manifests. The shared `mdast-util-from-markdown`
+updates. These are immutable plugin source inputs, not independently
+upgradable manifests. Cargo backports in `src-tauri/vendor/` are reached only
+through `[patch.crates-io]`, never as application workspace members, so
+Dependabot reads their manifests as read-only path sources and skips the
+patched crates. Do not exclude `vendor/**` from the Cargo update: Cargo must
+load those manifests to resolve the graph, and the exclusion makes every Cargo
+update fail. Do not make the backports application workspace members either:
+Dependabot would then rewrite their reviewed requirements. The shared
+`mdast-util-from-markdown`
 dependency also requires explicitly approved new plugin versions before its
 resolved bytes change. Keep existing catalog entries, release ledgers, and
 archive digests unchanged when updating host-only dependencies.
@@ -1631,9 +1637,26 @@ artifacts; macOS `.app.tar.gz` extraction does not depend on the feature. Keep
 only `rustls-tls` and `system-proxy` enabled. Do not restore the default features
 or add an unrelated ZIP dependency to mask its audit findings.
 
+[RUSTSEC-2026-0543](https://rustsec.org/advisories/RUSTSEC-2026-0543) marks
+every `chrono` release unmaintained. Denote uses `jiff` and the standard
+library instead, and `trash` 5.4.0 replaces its own `chrono` dependency with
+`jiff`. Stored RFC 3339 timestamps keep the existing `+00:00` suffix and 0-,
+3-, 6-, or 9-digit fractions because SQL orders them as text. `chrono` still
+appears in both lockfiles only because `serde_with`, required by the pinned
+`tauri-utils`, names it through disabled weak features; Cargo locks such
+optional dependencies
+([rust-lang/cargo#10801](https://github.com/rust-lang/cargo/issues/10801)).
+The audit ignores that one advisory only after `cargo tree --workspace
+--all-features --target all --edges all --invert chrono` proves neither
+workspace compiles `chrono`, and it prints the exception. If anything compiles
+`chrono` again, the advisory stays denied.
+
 Seven source packages in `src-tauri/vendor/` carry narrowly scoped compatibility
 backports through `[patch.crates-io]`; their original package names and versions
-remain unchanged. The workspace defaults to the application only, so ordinary
+remain unchanged. The application workspace excludes `vendor`, and its only
+members are the application and `speech-worker`. The source-aware audit
+rejects a backport listed as an application workspace member. The workspace
+defaults to the application only, so ordinary
 desktop builds do not acquire a macOS or Windows GTK build requirement. Its
 `target` tree is excluded so staged bundled Git source remains an independent
 Cargo package. Do not list `.` in `workspace.members`: Cargo includes the root
@@ -1644,11 +1667,28 @@ The source-aware audit permits only its exact reviewed local `0.1.0` manifest
 alongside the application and named backports; it rejects a helper from a
 registry, Git URL, different path/version, or duplicate package.
 
-The workspace has one authoritative `src-tauri/Cargo.lock`. Redundant lockfiles
-from the original Tauri plugin archives are omitted because Cargo ignores them
-inside this workspace and they retain unrelated, stale dependency graphs.
-The source-aware audit rejects reintroducing nested vendor lockfiles and
-continues to audit every resolved vendor package's original registry identity.
+`src-tauri/Cargo.lock` is authoritative for the application.
+`src-tauri/vendor/Cargo.toml` is a separate test-only workspace whose members
+are exactly the seven backports, with the same patches and its own reviewed
+`src-tauri/vendor/Cargo.lock`. Cargo resolves dev-dependencies only for
+workspace members, so that lockfile owns the regression-test graph, such as
+`criterion` and `trybuild`, which never ships in the application. It was seeded
+from the application lockfile, and every shared package keeps the application's
+version. Run backport tests through the test workspace:
+
+```bash
+cargo test --manifest-path src-tauri/vendor/Cargo.toml --target-dir src-tauri/target --locked --package urlpattern
+node scripts/test-gtk-backports.mjs
+```
+
+The source-aware audit verifies the test workspace members and registry
+sources, requires its Tauri, Tao, Wry, and WebView2 records to match versions
+the application ships, and audits its lockfile too. When the Windows runtime
+pin changes, move the same family in both lockfiles. Redundant lockfiles from
+the original Tauri plugin archives stay omitted because they retain unrelated,
+stale dependency graphs. The audit rejects reintroducing a per-crate vendor
+lockfile and continues to audit every resolved vendor package's original
+registry identity.
 
 Keep the vendored manifests on their reviewed dependency API lines. In
 particular, GLib/GTK macros use Syn 2, and the opener build script uses
@@ -1776,14 +1816,16 @@ This warning remains visible: it is not ignored, renamed, or hidden with a
 fabricated version. A successful audit exit alone is not proof that this bug
 is fixed. The release-mode regression tests must pass. The audit includes all
 platforms in the lockfile, so macOS and Windows also report this Linux dependency.
-CI rejects any unmaintained-crate or yanked-version warning in either scan.
+CI rejects any unmaintained-crate or yanked-version warning in every scan,
+apart from the guarded lockfile-only `chrono` exception above.
 
 Run the backport checks with:
 
 ```bash
 node scripts/test-gtk-backports.mjs
-cargo test --manifest-path src-tauri/Cargo.toml --locked --package urlpattern
-DENOTE_TEST_DBUS=1 dbus-run-session -- cargo test --manifest-path src-tauri/Cargo.toml --locked \
+cargo test --manifest-path src-tauri/vendor/Cargo.toml --target-dir src-tauri/target --locked --package urlpattern
+DENOTE_TEST_DBUS=1 dbus-run-session -- cargo test --manifest-path src-tauri/vendor/Cargo.toml \
+  --target-dir src-tauri/target --locked \
   --package tauri-plugin-opener --package tauri-plugin-single-instance \
   --package tauri-plugin-notification --lib linux_backport
 ```
@@ -1853,7 +1895,27 @@ notes and issue/PR trackers, and RustSec for each package. Record the date,
 versions examined, exact evidence links, and whether a compatible upstream
 release can replace the local source. Report a compatible fix explicitly.
 
-Last vendored-library check: **2026-11-17**.
+Last vendored-library check: **2026-11-20**.
+Rechecked all seven vendor directories and `[patch.crates-io]` entries before
+repairing Dependabot's Cargo workspace. The official sparse-registry records
+for every vendored crate and notify-rust are unchanged since 2026-11-17, so
+the reviewed local/current stable pairs below still apply. The
+[GLib 0.22.11 release](https://github.com/gtk-rs/gtk-rs-core/releases/tag/0.22.11)
+is still the newest, the
+[0.18 branch](https://github.com/gtk-rs/gtk-rs-core/commits/0.18) is still at
+its 2023-12-30 head, and the
+[single-instance migration](https://github.com/tauri-apps/plugins-workspace/pull/3759)
+and [migration issue](https://github.com/tauri-apps/plugins-workspace/issues/3716)
+remain open. The
+[RustSec snapshot](https://github.com/RustSec/advisory-db/tree/074ea9a7ed619f511b5b7374c7a97e98d1e98be4/crates)
+adds no advisory for a vendored crate or its reviewed macro-error, Unicode, or
+D-Bus dependencies. It marks the application's direct `chrono` dependency
+unmaintained in
+[RUSTSEC-2026-0543](https://rustsec.org/advisories/RUSTSEC-2026-0543), which
+the same change removes. No compatible upstream fix replaces any backport; the
+notify-rust 4.19.0 candidate below is unchanged.
+
+Previous vendored-library check: **2026-11-17**.
 Rechecked all seven vendor directories and `[patch.crates-io]` entries before
 listing every catalog plugin on the public website. Fresh official
 sparse-registry records confirm GLib 0.18.5 / 0.22.11, GLib macros

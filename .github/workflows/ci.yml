@@ -261,7 +261,7 @@ jobs:
         run: npm run tauri build -- --no-bundle
 
       - name: URL pattern backport tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml --locked --package urlpattern
+        run: cargo test --manifest-path src-tauri/vendor/Cargo.toml --target-dir src-tauri/target --locked --package urlpattern
 
       - name: GTK backport tests
         if: runner.os == 'Linux'
@@ -272,7 +272,8 @@ jobs:
         env:
           DENOTE_TEST_DBUS: "1"
         run: |
-          dbus-run-session -- cargo test --manifest-path src-tauri/Cargo.toml --locked \
+          dbus-run-session -- cargo test --manifest-path src-tauri/vendor/Cargo.toml \
+            --target-dir src-tauri/target --locked \
             --package tauri-plugin-opener --package tauri-plugin-single-instance \
             --package tauri-plugin-notification --lib linux_backport
 

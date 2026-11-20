@@ -14,7 +14,7 @@ export function prepareGtkWorkspace(root) {
     for (const name of crates) {
       cpSync(join(root, "vendor", name), join(directory, "vendor", name), { recursive: true });
     }
-    copyFileSync(join(root, "Cargo.lock"), join(directory, "Cargo.lock"));
+    copyFileSync(join(root, "vendor", "Cargo.lock"), join(directory, "Cargo.lock"));
     writeFileSync(join(directory, "Cargo.toml"), [
       "[workspace]",
       'members = ["vendor/glib", "vendor/glib-macros"]',
@@ -72,8 +72,9 @@ function testGtkBackports() {
     env, encoding: "utf8", maxBuffer: 16 * 1024 * 1024,
     stdio: ["ignore", capture ? "pipe" : "inherit", "inherit"],
   });
-  const originalManifest = join(root, "Cargo.toml");
-  const baseline = JSON.parse(cargo(["metadata", "--manifest-path", originalManifest, "--locked", "--format-version", "1"], true));
+  // The backport test workspace owns the reviewed lock entries for GLib's dev-dependencies.
+  const backportManifest = join(root, "vendor", "Cargo.toml");
+  const baseline = JSON.parse(cargo(["metadata", "--manifest-path", backportManifest, "--locked", "--format-version", "1"], true));
   const directory = prepareGtkWorkspace(root);
   try {
     const manifest = join(directory, "Cargo.toml");
@@ -85,7 +86,7 @@ function testGtkBackports() {
     run(["test", "--package", "glib-macros"]);
     run(["test", "--package", "glib", "--features", "compiletests", "--test", "subclass_compiletest"]);
     run(["test", "--release", "--package", "glib", "--lib", "--", "variant_iter", "collections::strv::test::test_into_strv"]);
-    cargo(["rustc", "--manifest-path", originalManifest, "--locked", "--package", "gtk3-macros", "--lib", "--", "-Dwarnings"]);
+    cargo(["rustc", "--manifest-path", backportManifest, "--locked", "--package", "gtk3-macros", "--lib", "--", "-Dwarnings"]);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

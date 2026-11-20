@@ -19,8 +19,8 @@ updates:
 
   - package-ecosystem: cargo
     directory: /src-tauri
-    exclude-paths:
-      - "vendor/**"
+    # Backports are patch-only here, so Dependabot reads them without editing
+    # them. Excluding vendor/ would hide manifests Cargo must load.
     ignore:
       # Keep the complete Windows-safe runtime family together.
       - dependency-name: "tauri*"

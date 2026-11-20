@@ -8,7 +8,6 @@ use std::{
 };
 
 use base64::{Engine, engine::general_purpose::STANDARD};
-use chrono::Utc;
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use uuid::Uuid;
 use zeroize::Zeroizing;
@@ -628,7 +627,24 @@ pub fn scrub_deleted_content(connection: &Connection) -> AppResult<()> {
 }
 
 pub fn now() -> String {
-    Utc::now().to_rfc3339()
+    rfc3339_utc(jiff::Timestamp::now())
+}
+
+// Stored timestamps are ordered as text, so keep the established `+00:00`
+// suffix and whole-millisecond, -microsecond, or -nanosecond fractions.
+fn rfc3339_utc(timestamp: jiff::Timestamp) -> String {
+    let datetime = jiff::tz::Offset::UTC.to_datetime(timestamp);
+    let nanos = datetime.subsec_nanosecond();
+    let fraction = if nanos == 0 {
+        String::new()
+    } else if nanos % 1_000_000 == 0 {
+        format!(".{:03}", nanos / 1_000_000)
+    } else if nanos % 1_000 == 0 {
+        format!(".{:06}", nanos / 1_000)
+    } else {
+        format!(".{nanos:09}")
+    };
+    format!("{}{fraction}+00:00", datetime.strftime("%Y-%m-%dT%H:%M:%S"))
 }
 
 pub fn ensure_vault(connection: &Connection, path: &str, name: &str) -> AppResult<i64> {
@@ -2228,6 +2244,16 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+
+    #[test]
+    fn timestamps_keep_the_established_rfc3339_text_order() {
+        let at = |nanos| rfc3339_utc(jiff::Timestamp::new(1_700_000_000, nanos).unwrap());
+        assert_eq!(at(0), "2023-11-14T22:13:20+00:00");
+        assert_eq!(at(100_000_000), "2023-11-14T22:13:20.100+00:00");
+        assert_eq!(at(123_456_000), "2023-11-14T22:13:20.123456+00:00");
+        assert_eq!(at(123_456_789), "2023-11-14T22:13:20.123456789+00:00");
+        assert!(at(0) < at(100_000_000) && at(100_000_000) < at(100_000_001));
+    }
 
     #[test]
     fn calendar_file_date_migration_preserves_legacy_stats_and_path_lifecycle() {
