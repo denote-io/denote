@@ -52,7 +52,7 @@ hex = "0.4.3"
 base64 = "0.23.1"
 mime_guess = "2.0.5"
 quick-xml = "0.42"
-rusqlite = { version = "0.41.1", features = ["bundled"] }
+rusqlite = { version = "0.43.0", features = ["bundled"] }
 jiff = { version = "1.0.1", default-features = false, features = ["std"] }
 uuid = { version = "1.26.0", features = ["v4", "serde"] }
 atomic-write-file = "0.3.1"

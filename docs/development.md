@@ -634,12 +634,13 @@ DMG described in **Preview an unpublished plugin on macOS** below.
 local plugin archive** in Denote Development. The production downloader never
 falls back to these local bytes, and neither DMG embeds the executable plugin.
 
-The independent host sanitizer retains DOMPurify
-[3.4.17](https://github.com/cure53/DOMPurify/releases/tag/3.4.17) to fix
+The independent host sanitizer uses DOMPurify
+[3.4.18](https://github.com/cure53/DOMPurify/releases/tag/3.4.18). It keeps the
+[3.4.17](https://github.com/cure53/DOMPurify/releases/tag/3.4.17) fixes for
 [GHSA-cg2g-xh64-v4q7](https://github.com/advisories/GHSA-cg2g-xh64-v4q7),
 [GHSA-mrv2-3pqr-j5jr](https://github.com/advisories/GHSA-mrv2-3pqr-j5jr), and
-[GHSA-c6gr-qvv4-5v3f](https://github.com/advisories/GHSA-c6gr-qvv4-5v3f).
-Mermaid 0.2.9 also used this patch. Earlier published plugin archives retain
+[GHSA-c6gr-qvv4-5v3f](https://github.com/advisories/GHSA-c6gr-qvv4-5v3f), and
+also fixes a `SAFE_FOR_TEMPLATES` bypass. Mermaid 0.2.9 used 3.4.17. Earlier published plugin archives retain
 their immutable bytes and source provenance.
 The build/test toolchain pins Vite 8.3.8 and Rolldown 1.2.15 together, with
 patched Undici 8.12.3. Vite 8.3.7 and later fix
@@ -1542,7 +1543,7 @@ pin these four packages and Time tracking 0.2.0 to that full source SHA with
 Unchanged packages retain their existing source identities and bytes.
 
 Keep the published v0.9.0 DOMPurify remediation from issue #130: canonical
-DOMPurify 3.4.17, source-map-js 1.2.2, and Undici 8.12.3 remain security
+DOMPurify 3.4.18, source-map-js 1.2.2, and Undici 8.12.3 remain security
 overrides. KaTeX 0.18.10 and lodash-es 4.18.1 remain fixed in historical Mermaid
 source pins, but leave the current graph with the Pele replacement.
 Deprecated KaTeX 0.18.11 accidentally
@@ -1554,9 +1555,9 @@ and SHA-256 digests with the existing `legacyHash` and portable-header settings.
 Do not rewrite old
 ledger entries or repin old versions to fix already-published remediation.
 The host-only frontend updates use Lexical 0.53.0, @mdxeditor/editor 4.5.0,
-@pierre/diffs 1.6.4, lucide-react 1.73.0, mdast-util-to-markdown 2.2.3,
+@pierre/diffs 1.6.4, lucide-react 1.74.0, mdast-util-to-markdown 2.2.3,
 PDF.js 6.5.438, zbsearch 4.0.4, @types/node 26.6.6,
-@vitejs/plugin-react 6.3.0, Playwright 1.65.0, user-event 14.6.10,
+@vitejs/plugin-react 6.3.0, Playwright 1.65.1, user-event 14.6.12,
 jsdom 31.0.1, and Vitest 5.1.0. Autocomplete 6.20.4 remains unchanged; no
 Tauri-family upgrade is implied. jsdom 31 resolves unitless computed
 `line-height` to pixels, as browsers do, so style assertions compare the
@@ -1598,6 +1599,16 @@ The 2026-11-15 refresh updates `quinn-udp` to 0.5.16 for
 [RUSTSEC-2026-0486](https://rustsec.org/advisories/RUSTSEC-2026-0486). Only
 those two lockfile records change; both still accept the existing
 `windows-sys` selections, and the Windows-safe Tauri family stays unchanged.
+
+The 2026-11-20 refresh updates `rusqlite` to 0.43.0 and `libsqlite3-sys` to
+0.40.0, which fix several use-after-free bugs and reject empty or comment-only
+SQL ([0.42](https://github.com/rusqlite/rusqlite/releases/tag/v0.42.0),
+[0.43](https://github.com/rusqlite/rusqlite/releases/tag/v0.43.0)). `uuid`,
+`libloading`, `zip`, `ignore`, `flate2`, `sysinfo`, and `xattr` take
+compatible patch or minor updates. `windows-future` stays at 0.3.2:
+`windows` 0.62.2, the newest release, returns `windows-future` 0.3 operation
+types, so `windows-future` 0.100.0 alone does not compile. Dependabot ignores
+its minor and major updates; move it only with a matching `windows` release.
 
 The lockfile keeps `quinn-proto` at 0.11.19 to fix the advisories published on
 2026-10-12:
@@ -1895,7 +1906,25 @@ notes and issue/PR trackers, and RustSec for each package. Record the date,
 versions examined, exact evidence links, and whether a compatible upstream
 release can replace the local source. Report a compatible fix explicitly.
 
-Last vendored-library check: **2026-11-20**.
+Last vendored-library check: **2026-11-20** (afternoon).
+Rechecked all seven vendor directories and `[patch.crates-io]` entries before
+consolidating the Dependabot npm and Cargo updates. The official sparse-registry
+records for every vendored crate and notify-rust publish nothing after the
+local/current stable pairs below; notify-rust 4.19.0 remains the only compatible
+candidate. The [single-instance migration](https://github.com/tauri-apps/plugins-workspace/pull/3759),
+[migration issue](https://github.com/tauri-apps/plugins-workspace/issues/3716),
+and new [notification zbus 6 update](https://github.com/tauri-apps/plugins-workspace/pull/3792)
+are open and unreleased; the plugins' `v2` branch still requires Tauri 2.12.
+The [0.18 branch](https://github.com/gtk-rs/gtk-rs-core/commits/0.18) is still
+at its 2023-12-30 head. The
+[RustSec snapshot](https://github.com/RustSec/advisory-db/tree/f291af9b1cc0d21dfcea1709d6b037963cef262b/crates)
+adds only unrelated advisories since the morning check. Tauri 2.12.7, Wry
+0.57.3, and Tao 0.37.3 still require GTK 0.18; the
+[Tao GTK 0.19 migration](https://github.com/tauri-apps/tao/pull/1332) is merged
+but unreleased, and the matching Wry and Tauri changes are open drafts. No
+compatible upstream fix replaces any backport.
+
+Earlier vendored-library check: **2026-11-20** (morning).
 Rechecked all seven vendor directories and `[patch.crates-io]` entries before
 repairing Dependabot's Cargo workspace. The official sparse-registry records
 for every vendored crate and notify-rust are unchanged since 2026-11-17, so

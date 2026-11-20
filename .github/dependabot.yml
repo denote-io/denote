@@ -28,6 +28,9 @@ updates:
       - dependency-name: "wry"
       - dependency-name: "webview2*"
       - dependency-name: "urlpattern"
+      # Must match the windows crate's windows-core; move both together manually.
+      - dependency-name: "windows-future"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
     schedule:
       interval: weekly
     groups:
