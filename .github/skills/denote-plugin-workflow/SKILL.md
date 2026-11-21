@@ -25,15 +25,18 @@ Trusted native Git support belongs in `src-tauri/src/plugins/git/`.
 
 ## Choose the path
 
-Decide what the plugin needs from the host before writing code:
+Classify the change before writing code; each kind uses only some steps:
 
-- **Only capabilities in a published Denote release**: skip to step 3 for a
-  new plugin, or step 4 for a change to an existing one.
-- **A new manifest field, permission, capability, or host operation**: start
-  at step 1. The plugin cannot be released until a Denote release ships the
-  host side, so expect two Denote pull requests: host support, then adoption.
-- **An SDK fix that leaves the host contract unchanged**: step 1 only. Move a
-  plugin or Denote to the new tag when it needs the fix.
+| Change | Steps | Notes |
+| --- | --- | --- |
+| Existing plugin, released host capabilities only | 4, 5 | Raise `minimumDenoteVersion` only for a capability from a later published release |
+| Plugin plus a new manifest field, permission, capability, or host operation | 1, 2, 4, 5 | Two Denote pull requests: host support, then adoption after a Denote release ships it |
+| Plugin plus `denote-plugin` tooling or SDK helpers bundled into the plugin, host unchanged | 1, 4, 5 | Move the plugin to the new SDK tag; no Denote release needed |
+| SDK only | 1 | Denote and plugins keep their pins; move each only when it needs the change |
+| New plugin | 3, 4, 5 | Add 1 and 2 when it needs new host support |
+
+Develop SDK and plugin changes together with a linked local SDK checkout (see
+**Local development loops**) before releasing the SDK.
 
 Look up the current SDK release rather than assuming one:
 
@@ -46,24 +49,33 @@ gh release view -R denote-io/denote-plugin-sdk --json tagName --jq .tagName
 1. **Release the SDK** (in the SDK repository). Run `npm run check`. Record a
    public declaration change with `npm run check:api -- --update-baseline` only
    after the API 1 freeze policy in `docs/plugins.md` allows it; never
-   regenerate the baseline to silence a failure. Bump `package.json`, run
-   `npm run build` so `dist/` matches, merge with CI passing, then tag that
-   merge commit `v<version>` with a GitHub release.
+   regenerate the baseline to silence a failure. Bump `package.json`, update
+   the tag in its README examples, run `npm run build` so `dist/` matches,
+   merge with CI passing, then tag that merge commit `v<version>` with a
+   GitHub release.
 2. **Support it in Denote.** `npm install github:denote-io/denote-plugin-sdk#v<version>`,
    then implement and test the frontend and the native validation under
-   `src-tauri/src/plugins/` together. Plugins may depend on it only after a
-   Denote release includes it.
+   `src-tauri/src/plugins/` together. `npm run check:plugins` revalidates every
+   catalog entry with the new SDK, so a stricter validator surfaces entries it
+   would reject. Plugins may depend on new host support only after a Denote
+   release includes it.
 3. **Create the plugin repository.** Scaffold with
    `npx --package github:denote-io/denote-plugin-sdk#v<version> denote-plugin create denote-<name> denote.<name> "<Name>"`,
    run `npm install` to create `package-lock.json`, which the scaffold omits
    and its CI's `npm ci` requires, commit both, and create
    `denote-io/denote-<name>`. Set
    `compatibility.minimumDenoteVersion` in `plugin.json` (see the rules below).
-4. **Release the plugin.** Bump `version` in `plugin.json` and `package.json`
-   together, merge with CI passing, and run the plugin repository's **Release**
-   workflow once its minimum Denote release is published.
-5. **Adopt it in Denote.** Run `npm run update:plugin -- denote.<name> <version>`,
-   review `plugins/bundles.json`, and complete the new-plugin checklist below.
+4. **Release the plugin.** To move it to a new SDK tag, run
+   `npm install github:denote-io/denote-plugin-sdk#v<version>` in its
+   repository. Bump `version` in `plugin.json` and `package.json` together in
+   the same pull request as any change to the archive, merge with CI passing,
+   and run the plugin repository's **Release** workflow once its minimum
+   Denote release is published.
+5. **Adopt it in Denote.** Run `npm run update:plugin -- denote.<name> <version>`
+   and review `plugins/bundles.json`. Update the plugin's sections in
+   `docs/plugins.md`, `docs/development.md`, and the user guide when behavior
+   or permissions changed, and complete the new-plugin checklist below for a
+   new plugin.
 
 ## Rules and why they exist
 
@@ -75,10 +87,21 @@ gh release view -R denote-io/denote-plugin-sdk --json tagName --jq .tagName
   size, SHA-256 digest, manifest, guide, and source commit, and plugin CI checks
   that the released version still rebuilds byte for byte. Any source,
   dependency, compiler, or SDK pin change needs a new plugin version.
+- **Bump in the pull request that changes the archive.** Plugin CI rebuilds on
+  every pull request and fails when the current version is already published
+  with different bytes. README, test, and CI changes leave the archive alone
+  and need no bump; later changes before the next release reuse the bumped
+  version.
 - **Expect an SDK pin change to change archive bytes.** The archived
   `package.json` records the SDK version, so even an otherwise identical plugin
   needs a new version. Plugin repositories pin the SDK independently; an SDK
   release changes no existing plugin.
+- **Explain permission changes.** Automatic updates skip a version whose
+  requested permissions differ; users approve it through **Review and update**
+  or **Update all**, so the plugin guide must explain what changed.
+- **Users get adopted versions with a Denote release.** The application
+  compiles `plugins/catalog.json` in, so adoption reaches users only when the
+  next Denote release ships.
 - **Leave the application version alone.** Host-support and adoption pull
   requests keep the latest published version; only a release bumps it.
 - **Keep archives out of Git and installers.** Plugin `.tgz` files are GitHub

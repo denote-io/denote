@@ -644,15 +644,49 @@ A plugin change can span three kinds of repository:
 | `denote-io/denote-<name>` | One plugin's source, tests, CI, and **Release** workflow |
 | This repository | Host implementation, SDK pin, and catalog and bundle metadata |
 
-Work in this order and skip steps the change does not need. A new plugin that
-uses only released host capabilities starts at step 3.
+The numbered steps below run in order. Each kind of change uses only some of
+them:
+
+- **Change an existing plugin.** When it uses only capabilities in a published
+  Denote release, use steps 4 and 5. Raise its `minimumDenoteVersion` only when
+  it starts using a capability from a later published release. If the new version
+  requests different permissions, automatic updates skip it and users approve
+  it through **Review and update** or **Update all**, so explain the change in
+  the plugin guide. After adoption, update its sections in
+  [plugins.md](plugins.md), this file, and
+  [Optional plugins](<user-guide/docs/Optional plugins.md>) when behavior or
+  permissions changed.
+- **Change a plugin and the host contract.** When the SDK change adds a
+  manifest field, permission, capability, or host operation, use steps 1, 2,
+  4, and 5: release the SDK, ship host support in a Denote release, then move
+  the plugin to the new SDK tag, raise its `minimumDenoteVersion` to that
+  release, and release and adopt it.
+- **Change a plugin and SDK tooling or helpers.** When the change is in the
+  `denote-plugin` command or in SDK helpers compiled into the plugin bundle,
+  and the host is unchanged, use steps 1, 4, and 5. In the plugin repository,
+  move to the new tag with
+  `npm install github:denote-io/denote-plugin-sdk#v<version>`.
+- **Change only the SDK.** Use step 1. Nothing else changes: this repository
+  and every plugin keep their pinned tag. Move this repository (step 2) when its
+  validation, contracts, or host need the change; `check:plugins` then
+  revalidates every catalog entry with the new SDK, so a stricter validator
+  reports existing entries it would reject. Move a plugin only when it needs
+  the change, as a new plugin version (steps 4 and 5).
+- **Add a plugin.** Use steps 3 to 5, or every step when it needs new host
+  support.
+
+Moving a plugin to another SDK tag always changes its archive bytes, because
+the archived `package.json` records the SDK version. Develop SDK and plugin
+changes together with a linked local SDK checkout, described after the steps,
+before releasing the SDK.
 
 1. **Release the SDK.** In the SDK repository, make the change and run
    `npm run check`. If public declarations change, review the
    [API 1 freeze and deprecation policy](plugins.md#api-1-freeze-and-deprecation-policy)
    before recording them with `npm run check:api -- --update-baseline`. Bump
-   `version` in `package.json`, run `npm run build` to regenerate `dist/`, and
-   merge with CI passing. Tag the merge commit and publish the release:
+   `version` in `package.json`, update the tag in its README examples, run
+   `npm run build` to regenerate `dist/`, and merge with CI passing. Tag the
+   merge commit and publish the release:
 
    ```bash
    gh release create v0.2.0 -R denote-io/denote-plugin-sdk \
@@ -697,9 +731,13 @@ uses only released host capabilities starts at step 3.
    **Denote Development** as described above.
 
 4. **Release the plugin.** Bump `version` in both `plugin.json` and
-   `package.json`, merge with CI passing, and run the **Release** workflow
-   once the Denote release named by its minimum is published. It publishes
-   `denote.example-<version>.tgz` as the `v<version>` release asset.
+   `package.json` in the same pull request as a change to the archive: plugin
+   CI rebuilds it and fails when the current version is already published with
+   different bytes. Changes outside the archive, such as the README, tests, or
+   CI, need no bump, and later changes before the next release keep the
+   already bumped version. Merge with CI passing, and run the **Release**
+   workflow once the Denote release named by its minimum is published. It
+   publishes `denote.example-<version>.tgz` as the `v<version>` release asset.
 
    ```bash
    gh workflow run release.yml -R denote-io/denote-example
@@ -715,12 +753,9 @@ uses only released host capabilities starts at step 3.
    - a row in the plugins table of the
      [organization profile](https://github.com/denote-io/.github/blob/main/profile/README.md).
 
-   Adoption does not bump the application version.
-
-Plugin repositories pin the SDK independently, so an SDK release changes no
-existing plugin. Moving a plugin to it changes the archive bytes, because the
-archived `package.json` records the SDK version; release that as a new plugin
-version and adopt it.
+   Adoption does not bump the application version. The application compiles
+   `plugins/catalog.json` in, so users are offered the adopted version with
+   the next Denote release.
 
 To try an unreleased SDK change, link a local checkout without editing
 `package.json`, either in a plugin repository or here:
