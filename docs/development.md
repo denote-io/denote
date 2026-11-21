@@ -680,9 +680,13 @@ uses only released host capabilities starts at step 3.
    npx --package github:denote-io/denote-plugin-sdk#v0.2.0 \
      denote-plugin create denote-example denote.example "Example plugin"
    cd denote-example
+   npm install
    git init -b main && git add -A && git commit -m "Scaffold the Example plugin"
    gh repo create denote-io/denote-example --public --source . --push
    ```
+
+   The scaffold has no lockfile; `npm install` creates the
+   `package-lock.json` that its CI's `npm ci` requires.
 
    Set `compatibility.minimumDenoteVersion` in `plugin.json` to the earliest
    published Denote release that provides every capability the plugin uses,

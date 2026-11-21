@@ -133,7 +133,9 @@ Scaffold a new plugin repository with the SDK's `denote-plugin create`, as
 described in `docs/development.md`. For a change that spans the SDK, a plugin
 repository, and Denote, follow **Plugin and SDK workflow** there: release the
 SDK, ship host support in a Denote release, release the plugin with a published
-`minimumDenoteVersion`, then adopt it. Disabling a plugin must remove package
+`minimumDenoteVersion`, then adopt it. The `denote-plugin-workflow` project
+skill in `.github/skills/` gives agents the same sequence and checklist; keep it
+consistent with that section. Disabling a plugin must remove package
 code, cached archives, staging content, and removal backups without deleting
 vault content.
 
