@@ -20,7 +20,9 @@ const CONFIG_SOURCE: &str = include_str!("../updater.json");
 const RELEASE_ASSET_SOURCE: &str = include_str!("../../release-assets.json");
 const MAX_UPDATE_BYTES: usize = 512 * 1024 * 1024;
 const MAX_REDIRECTS: usize = 5;
-const OFFICIAL_REPOSITORY: &str = "mbianchidev/denote";
+// The repository is moving to denote-io/denote. Accept both paths so this build
+// keeps updating before and after the GitHub transfer.
+const OFFICIAL_REPOSITORIES: [&str; 2] = ["mbianchidev/denote", "denote-io/denote"];
 const DEVELOPMENT_IDENTIFIER: &str = "dev.mbianchi.denote.development";
 
 #[derive(Debug, Clone, Deserialize)]
@@ -267,9 +269,15 @@ fn configuration_is_enabled(config: &UpdaterConfiguration) -> bool {
 }
 
 fn release_contract() -> AppResult<ReleaseAssetContract> {
-    let contract: ReleaseAssetContract = serde_json::from_str(RELEASE_ASSET_SOURCE)
+    parse_release_contract(RELEASE_ASSET_SOURCE)
+}
+
+fn parse_release_contract(source: &str) -> AppResult<ReleaseAssetContract> {
+    let contract: ReleaseAssetContract = serde_json::from_str(source)
         .map_err(|error| AppError::Update(format!("Invalid release asset contract: {error}")))?;
-    if contract.schema_version != 1 || contract.repository != OFFICIAL_REPOSITORY {
+    if contract.schema_version != 1
+        || !OFFICIAL_REPOSITORIES.contains(&contract.repository.as_str())
+    {
         return Err(AppError::Update(
             "Unsupported release asset contract".to_string(),
         ));
@@ -277,10 +285,16 @@ fn release_contract() -> AppResult<ReleaseAssetContract> {
     Ok(contract)
 }
 
+fn is_official_release_path(path: &str, release_path: &str) -> bool {
+    OFFICIAL_REPOSITORIES
+        .iter()
+        .any(|repository| path == format!("/{repository}/{release_path}"))
+}
+
 fn validate_endpoint(url: &Url) -> AppResult<()> {
     if url.scheme() != "https"
         || url.host_str() != Some("github.com")
-        || url.path() != format!("/{OFFICIAL_REPOSITORY}/releases/latest/download/latest.json")
+        || !is_official_release_path(url.path(), "releases/latest/download/latest.json")
     {
         return Err(AppError::Update(
             "The update endpoint must be the official Denote GitHub Release endpoint".to_string(),
@@ -304,15 +318,18 @@ fn validate_update_download(update: &Update) -> AppResult<()> {
             ))
         })?;
     let expected_name = render_release_name(&expected.release_file_name, &update.version)?;
-    let expected_path = format!(
-        "/{OFFICIAL_REPOSITORY}/releases/download/v{}/{expected_name}",
-        update.version
-    );
-    if update.download_url.scheme() != "https"
-        || update.download_url.host_str() != Some("github.com")
-        || update.download_url.path() != expected_path
-        || update.download_url.query().is_some()
-        || update.download_url.fragment().is_some()
+    validate_download_url(&update.download_url, &update.version, &expected_name)
+}
+
+fn validate_download_url(url: &Url, version: &str, expected_name: &str) -> AppResult<()> {
+    if url.scheme() != "https"
+        || url.host_str() != Some("github.com")
+        || !is_official_release_path(
+            url.path(),
+            &format!("releases/download/v{version}/{expected_name}"),
+        )
+        || url.query().is_some()
+        || url.fragment().is_some()
     {
         return Err(AppError::Update(
             "The update metadata selected an unofficial or unexpected artifact".to_string(),
@@ -525,18 +542,64 @@ mod tests {
     }
 
     #[test]
-    fn official_endpoint_is_exact() {
-        validate_endpoint(
-            &Url::parse(
-                "https://github.com/mbianchidev/denote/releases/latest/download/latest.json",
+    fn official_endpoint_is_exact_for_both_repository_owners() {
+        for repository in ["mbianchidev/denote", "denote-io/denote"] {
+            validate_endpoint(
+                &Url::parse(&format!(
+                    "https://github.com/{repository}/releases/latest/download/latest.json"
+                ))
+                .expect("url"),
             )
-            .expect("url"),
-        )
-        .expect("official endpoint");
-        assert!(
-            validate_endpoint(&Url::parse("https://example.test/latest.json").expect("url"))
-                .is_err()
-        );
+            .expect("official endpoint");
+        }
+        for rejected in [
+            "https://example.test/latest.json",
+            "http://github.com/denote-io/denote/releases/latest/download/latest.json",
+            "https://github.com/synthetic-owner/denote/releases/latest/download/latest.json",
+            "https://github.com/denote-io/denote-fork/releases/latest/download/latest.json",
+            "https://github.com/denote-io/denote/releases/latest/download/other.json",
+        ] {
+            assert!(
+                validate_endpoint(&Url::parse(rejected).expect("url")).is_err(),
+                "{rejected}"
+            );
+        }
+    }
+
+    #[test]
+    fn release_contract_accepts_only_official_repositories() {
+        let contract = |repository: &str| {
+            format!(r#"{{"schemaVersion":1,"repository":"{repository}","updaterTargets":[]}}"#)
+        };
+        assert!(parse_release_contract(&contract("mbianchidev/denote")).is_ok());
+        assert!(parse_release_contract(&contract("denote-io/denote")).is_ok());
+        assert!(parse_release_contract(&contract("synthetic-owner/denote")).is_err());
+        release_contract().expect("embedded release contract");
+    }
+
+    #[test]
+    fn update_downloads_must_be_exact_official_release_assets() {
+        let name = "Denote_1.2.3_aarch64.app.tar.gz";
+        for repository in ["mbianchidev/denote", "denote-io/denote"] {
+            let url = Url::parse(&format!(
+                "https://github.com/{repository}/releases/download/v1.2.3/{name}"
+            ))
+            .expect("url");
+            validate_download_url(&url, "1.2.3", name).expect("official download");
+        }
+        for rejected in [
+            format!("https://github.com/synthetic-owner/denote/releases/download/v1.2.3/{name}"),
+            format!("https://example.test/denote-io/denote/releases/download/v1.2.3/{name}"),
+            format!("https://github.com/denote-io/denote/releases/download/v1.2.4/{name}"),
+            format!("https://github.com/denote-io/denote/releases/download/v1.2.3/{name}?x=1"),
+            format!("https://github.com/denote-io/denote/releases/download/v1.2.3/{name}#x"),
+            "https://github.com/denote-io/denote/releases/download/v1.2.3/Other.tar.gz".to_string(),
+        ] {
+            assert!(
+                validate_download_url(&Url::parse(&rejected).expect("url"), "1.2.3", name).is_err(),
+                "{rejected}"
+            );
+        }
     }
 
     #[test]
