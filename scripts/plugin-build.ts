@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
-import { basename, dirname, join, sep } from "node:path";
+import { createRequire } from "node:module";
+import { basename, dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { pluginSdkModulePath, pluginSdkSourceCommit } from "./plugin-sdk-provenance";
@@ -14,7 +15,11 @@ import {
 
 export const projectRoot = fileURLToPath(new URL("..", import.meta.url));
 export const pluginsRoot = join(projectRoot, "plugins");
-const sdkRoot = realpathSync(join(projectRoot, "packages", "plugin-sdk"));
+// The SDK is installed from denote-io/denote-plugin-sdk; packages/plugin-sdk is its historical path.
+export const sdkRoot = realpathSync(join(
+  dirname(createRequire(join(projectRoot, "package.json")).resolve("@denote/plugin-sdk")),
+  "..",
+));
 
 export function pluginDirectories(pluginId?: string): string[] {
   const directories = readdirSync(pluginsRoot, { withFileTypes: true })
@@ -79,7 +84,7 @@ export async function buildPlugin(pluginDirectory: string): Promise<PluginManife
       plugins: [
         ...(sourceCommit ? [pinnedPluginSdk(sourceCommit)] : []),
         pluginBoundary(pluginDirectory, sdkRoot),
-        stableSourceLabels(manifest),
+        stableSourceLabels(manifest, sdkRoot),
       ],
       resolve: {
         conditions: entrypoint.conditions,
@@ -106,15 +111,19 @@ export async function buildPlugin(pluginDirectory: string): Promise<PluginManife
   return manifest;
 }
 
-function stableSourceLabels(manifest: PluginManifest): Plugin {
+function stableSourceLabels(manifest: PluginManifest, canonicalSdkRoot: string): Plugin {
+  const sdkLabel = relative(projectRoot, canonicalSdkRoot).split(sep).join("/");
   return {
     name: "denote-stable-plugin-source-labels",
     renderChunk(code) {
       // Keep historical debug labels stable when a package moves on disk.
-      return code.replace(
-        /^\/\/#region plugins\/[^/]+\//gm,
-        `//#region packages/plugins/${manifest.id}/`,
-      );
+      return code
+        .replace(
+          /^\/\/#region plugins\/[^/]+\//gm,
+          `//#region packages/plugins/${manifest.id}/`,
+        )
+        .split(`\n// ${sdkLabel}/`)
+        .join("\n// packages/plugin-sdk/");
     },
   };
 }
@@ -128,7 +137,8 @@ function pinnedPluginSdk(sourceCommit: string): Plugin {
     enforce: "pre",
     load(id) {
       const path = pluginSdkModulePath(sdkRoot, id);
-      if (!path) {
+      if (!path || !sdkSourceExists(sourceCommit, path)) {
+        // Pins made after the SDK moved build against the locked SDK release.
         return;
       }
       // Keep canonical module IDs (and bundle bytes), but rebuild an immutable
@@ -141,6 +151,18 @@ function pinnedPluginSdk(sourceCommit: string): Plugin {
       });
     },
   };
+}
+
+function sdkSourceExists(sourceCommit: string, path: string): boolean {
+  try {
+    execFileSync("git", ["cat-file", "-e", `${sourceCommit}:${path}`], {
+      cwd: projectRoot,
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function pluginBoundary(pluginDirectory: string, canonicalSdkRoot: string): Plugin {

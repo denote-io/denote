@@ -149,7 +149,7 @@ export function verifySourceCommit(
   }
   const inputs = sourceFiles(directory).filter((path) => !relative(directory, path).startsWith(`tests${sep}`));
   if (tooling) {
-    inputs.push(...sourceFiles(join(root, "packages/plugin-sdk")));
+    // The locked SDK release in package-lock.json is part of the build inputs.
     inputs.push(...[
       "package.json", "package-lock.json", "tsconfig.json", "tsconfig.node.json",
       "plugins/tsconfig.json", "scripts/plugin-build.ts", "scripts/plugin-archive.ts",
@@ -171,7 +171,6 @@ export function verifySourceCommit(
   }
   // Deleted source is just as significant as an edited or untracked source file.
   const trees = [{ path: sourcePath, directory }];
-  if (tooling) trees.push({ path: "packages/plugin-sdk", directory: join(root, "packages/plugin-sdk") });
   for (const tree of trees) {
     const committedFiles = git(["ls-tree", "-r", "--name-only", sourceCommit, "--", tree.path])
       .toString("utf8").trim().split("\n");
