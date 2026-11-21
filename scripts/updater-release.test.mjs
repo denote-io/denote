@@ -70,6 +70,29 @@ describe("updater release", () => {
     );
   });
 
+  it("accepts the update endpoint before and after the denote-io transfer", () => {
+    const root = fixtureRoot();
+    const updaterPath = join(root, "updater.json");
+    const committed = JSON.parse(readFileSync("src-tauri/updater.json", "utf8"));
+    for (const owner of ["mbianchidev", "denote-io"]) {
+      const endpoint = `https://github.com/${owner}/denote/releases/latest/download/latest.json`;
+      write(updaterPath, JSON.stringify({ ...committed, endpoint }));
+      expect(
+        readUpdaterConfiguration(updaterPath, "src-tauri/tauri.release.conf.json").endpoint,
+      ).toBe(endpoint);
+    }
+    write(
+      updaterPath,
+      JSON.stringify({
+        ...committed,
+        endpoint: "https://github.com/synthetic-owner/denote/releases/latest/download/latest.json",
+      }),
+    );
+    expect(() => readUpdaterConfiguration(updaterPath)).toThrow(
+      "Invalid updater configuration.",
+    );
+  });
+
   it("prepares signing config for an immutable release checkout", () => {
     const root = fixtureRoot();
     const updaterPath = join(root, "updater.json");
@@ -155,6 +178,7 @@ describe("updater release", () => {
       notes: "Synthetic release.",
       outputPath: output,
     });
+    // Clients released before the denote-io transfer accept only this owner.
     expect(manifest.platforms["darwin-aarch64-app"]).toEqual({
       url: "https://github.com/mbianchidev/denote/releases/download/v1.2.3/Denote_1.2.3_aarch64.app.tar.gz",
       signature: "darwin-aarch64-app signature",

@@ -14,6 +14,10 @@ import {
 } from "./release-assets.mjs";
 
 const UPDATER_CONFIG_PATH = resolve("src-tauri/updater.json");
+const OFFICIAL_UPDATE_ENDPOINTS = [
+  "https://github.com/mbianchidev/denote/releases/latest/download/latest.json",
+  "https://github.com/denote-io/denote/releases/latest/download/latest.json",
+];
 const TAURI_RELEASE_CONFIG_PATH = resolve(
   "src-tauri/tauri.release.conf.json",
 );
@@ -76,8 +80,7 @@ function readUpdaterPolicy(path) {
     config?.schemaVersion !== 1 ||
     typeof config.enabled !== "boolean" ||
     config.channel !== "stable" ||
-    config.endpoint !==
-      "https://github.com/mbianchidev/denote/releases/latest/download/latest.json" ||
+    !OFFICIAL_UPDATE_ENDPOINTS.includes(config.endpoint) ||
     (config.publicKey !== null && typeof config.publicKey !== "string")
   ) {
     throw new Error("Invalid updater configuration.");

@@ -613,6 +613,9 @@ jobs:
           import { join } from "node:path";
 
           const catalog = JSON.parse(readFileSync("plugins/catalog.json", "utf8"));
+          // Catalog URLs keep the release-contract owner so they stay valid across the denote-io transfer.
+          const { repository } = JSON.parse(readFileSync("release-assets.json", "utf8"));
+          assert(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository), "Invalid release contract repository.");
           assert(Array.isArray(catalog) && catalog.length > 0, "The release catalog must not be empty.");
           const expected = new Map();
           for (const { manifest, artifact, provenance } of catalog) {
@@ -623,7 +626,7 @@ jobs:
             assert(/^[0-9a-f]{64}$/.test(artifact.sha256), `Invalid digest: ${name}`);
             assert(/^[0-9a-f]{40}$/.test(provenance.sourceCommit), `Invalid source commit: ${name}`);
             assert(Number.isSafeInteger(artifact.sizeBytes) && artifact.sizeBytes > 0, `Invalid size: ${name}`);
-            const url = `https://github.com/${process.env.GITHUB_REPOSITORY}/releases/download/${process.env.RELEASE_TAG}/${name}`;
+            const url = `https://github.com/${repository}/releases/download/${process.env.RELEASE_TAG}/${name}`;
             assert.equal(artifact.url, url, `Catalog URL does not target this release: ${name}`);
             expected.set(name, artifact);
           }

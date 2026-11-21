@@ -101,7 +101,8 @@ itself with production bytes.
 
 When enabled, the Rust wrapper uses Tauri v2's mandatory Minisign verification,
 default greater-version comparison, bounded timeouts, and a GitHub-only redirect
-policy. It validates the selected URL against the exact Denote repository,
+policy. It validates the selected URL against the exact Denote repository path
+(`mbianchidev/denote` or, after the organization transfer, `denote-io/denote`),
 release version, package type, architecture, and `release-assets.json` contract.
 One verified update may be retained in memory. Starting a different download or
 discarding a failed flow removes it.
