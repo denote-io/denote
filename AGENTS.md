@@ -130,7 +130,10 @@ verifies every published archive against its catalog entry. Run
 verification, then stages the archives and their extracted files in ignored
 `.plugin-artifacts/` for browser gates, host tests, and native lifecycle tests.
 Scaffold a new plugin repository with the SDK's `denote-plugin create`, as
-described in `docs/development.md`. Disabling a plugin must remove package
+described in `docs/development.md`. For a change that spans the SDK, a plugin
+repository, and Denote, follow **Plugin and SDK workflow** there: release the
+SDK, ship host support in a Denote release, release the plugin with a published
+`minimumDenoteVersion`, then adopt it. Disabling a plugin must remove package
 code, cached archives, staging content, and removal backups without deleting
 vault content.
 
