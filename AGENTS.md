@@ -77,8 +77,8 @@ fix exists or the smoke test fails, keep the exact known-good versions.
 Keep the application version at the latest published release in feature and
 dependency PRs. `./scripts/release.sh <version>` owns the root npm, Cargo, and
 Tauri application-version bump and the release commit. Targeting a future
-release or pinning plugin packages for it does not authorize pre-bumping the
-application. Plugin versions and immutable source pins remain independent.
+release or adopting a new plugin release in the catalog does not authorize
+pre-bumping the application. Plugin versions remain independent.
 
 ## Plugins
 
@@ -86,89 +86,62 @@ Before changing plugin code or lifecycle behavior, read:
 
 - `docs/plugins.md` for the complete package, runtime, permission, security,
   installation, update, disablement, and publication model.
-- `docs/development.md` for the current authoring, validation, packaging,
-  pinning, and release commands.
+- `docs/development.md` for the current catalog, validation, local
+  development, and release commands.
 - `docs/user-guide/docs/Optional plugins.md` for canonical user-visible
   behavior.
 
-Plugin packages live in `plugins/git/`, `plugins/reference/`, and other
-`plugins/<name>/` directories, each owning its manifest, guide, tests, and
-repository-only `releases.json` ledger. Shared discovery metadata lives in
-`plugins/catalog.json` and `plugins/bundles.json`; the public SDK is
-[denote-io/denote-plugin-sdk](https://github.com/denote-io/denote-plugin-sdk),
-installed from its release tag. Trusted native Git integration belongs in
-`src-tauri/src/plugins/git/`, not in downloadable plugin code.
+Each optional plugin is developed, tested, versioned, and released in its own
+repository: plugin ID `denote.<name>` lives in `denote-io/denote-<name>`, such as
+[denote-io/denote-kanban](https://github.com/denote-io/denote-kanban). Plugin
+repositories build, check, and package with the `denote-plugin` command from the
+[plugin SDK](https://github.com/denote-io/denote-plugin-sdk), which also owns the
+public API 1 contract and its frozen baseline. Denote installs the SDK from its
+release tag. This repository keeps only the embedded catalog in
+`plugins/catalog.json` and curated bundles in `plugins/bundles.json`; `src/`
+must not import a plugin implementation package. Trusted native Git integration
+belongs in `src-tauri/src/plugins/git/`, not in downloadable plugin code.
 
-The application embeds catalog metadata only. Plugin `.tgz` files are separate
-GitHub Release assets and must never be committed, added to Tauri resources, or
-included in desktop installers. Generated release archives belong only in
-ignored `.plugin-artifacts/`. Historical versions retain their verified
-immutable origin URLs and metadata; do not rewrite history or replace bytes.
+The application embeds catalog metadata only. Plugin `.tgz` files are GitHub
+Release assets of their plugin repositories and must never be committed, added
+to Tauri resources, or included in desktop installers. Published versions are
+immutable: never automatically bump a version or replace bytes at an existing
+version. Catalog `provenance.sourceCommit` names the source that built the
+archive: the `mbianchidev/denote` commit for versions published before the move
+to plugin repositories, and the release tag commit in the plugin repository
+for later versions.
 
-For local plugin development, use the isolated development application:
-
-```bash
-npm run dev:plugin -- denote.example
-npm run dev:desktop
-```
-
-Load the ignored `.plugin-dev/denote.example.tgz` from **Settings → Plugins**.
-The local adapter is debug-only, visibly untrusted, and must continue to reuse
-the production manifest, permission, extraction, entrypoint-integrity, worker,
-rollback, and cleanup boundaries. Never add `file:` or localhost support to the
-production downloader. Disable a local plugin before loading rebuilt bytes with
-the same ID.
-
-Stage one plugin version with:
+After a plugin repository publishes `v<version>`, adopt that release with:
 
 ```bash
-npm run package:plugin -- denote.example
-```
-
-Commit the source and relevant SDK, lockfile, and build inputs first, then pin
-that full source commit for the intended Denote release:
-
-```bash
-npm run pin:plugin -- denote.example --ref "$(git rev-parse HEAD)" --release v0.1.1
+npm run update:plugin -- denote.example 0.2.0
 npm run check:plugins
-npm run package:plugins
-npm run check:plugin-archives -- --base "$(git rev-parse origin/main)"
+npm run check:plugin-downloads
 ```
 
-`package:plugin` writes ignored staging output only. `pin:plugin` verifies
-committed plugin source, SDK, build tooling, and lockfile inputs before building
-and again after packaging, then updates only the
-selected release ledger atomically before atomically replacing its catalog
-entry; it does not publish a release. An interruption between those writes
-leaves a prepared immutable ledger entry: retry the exact same pin, never edit
-or remove that entry to bypass immutability. Commit metadata changes separately.
-Catalog `provenance.sourceCommit` and ledger `sourceCommit` identify source
-provenance, not a commit containing archive bytes; no binary Git object is needed.
-New source ledger entries also retain `sourcePath`, the plugin directory at that
-commit, so later directory moves do not rewrite released provenance.
+`update:plugin` downloads the release asset, reads its manifest and guide,
+records its URL, size, SHA-256, and tag commit, and atomically rewrites only
+that catalog entry. It refuses different bytes for a version already in the
+catalog. Review `plugins/bundles.json` before committing. `check:plugins` type
+checks `scripts/*.ts` and validates the catalog, bundles, trusted publisher,
+release URLs, and editor import boundary offline. `check:plugin-downloads`
+verifies every published archive against its catalog entry. Run
+`npm run fetch:plugins` before `npm test` and browser gates: it applies the same
+verification, then stages the archives and their extracted files in ignored
+`.plugin-artifacts/` for browser gates, host tests, and native lifecycle tests.
+Scaffold a new plugin repository with the SDK's `denote-plugin create`, as
+described in `docs/development.md`. Disabling a plugin must remove package
+code, cached archives, staging content, and removal backups without deleting
+vault content.
 
-`.plugin-artifacts/pin.lock` is an exclusive cross-process lock containing the
-pin process's PID. A crashed pin leaves it behind; another pin refuses rather
-than stealing it. Confirm no pin process is running before removing only that
-exact lock file, then retry the same pin command. Never delete the ledger or
-staging directory to recover a lock.
-
-Never automatically bump a version or replace different bytes at an existing
-version. `check:plugins`
-and `package:plugins` verify historical downloads or deterministically rebuild
-new versions without requiring archive blobs in Git. Historical downloads use
-the exact ledger origin with no fallback. The archive guard rejects archives in
-the index and additions across proposed commits, not immutable history.
-`--base` requires a full commit SHA; it also preserves every existing release
-ledger entry and rejects same-version catalog digest, size, or source-SHA changes
-relative to that base.
-
-Release preparation rewrites current catalog URLs to the Denote tag; the source
-commit, size, SHA-256, and ledger origin remain authoritative. CI transfers
-verified staged archives to the publish job and rechecks their names, hashes,
-sizes, and URLs before uploading the exact bytes beside installers. Disabling
-a plugin must remove package code, cached archives, staging content, and removal
-backups without deleting vault content.
+For local plugin development, run `npm ci` and `npm run dev` in the plugin
+repository, which rebuilds the ignored `.plugin-dev/<plugin-id>.tgz`, and
+`npm run dev:desktop` here. Load that archive from **Settings → Plugins → Load
+local plugin archive**. The local adapter is debug-only, visibly untrusted, and
+must continue to reuse the production manifest, permission, extraction,
+entrypoint-integrity, worker, rollback, and cleanup boundaries. Never add
+`file:` or localhost support to the production downloader. Disable a local
+plugin before loading rebuilt bytes with the same ID.
 
 For a local macOS handoff without Developer ID credentials, build with
 `CI=true APPLE_SIGNING_IDENTITY=- npm run tauri build -- --bundles app,dmg`,
@@ -177,7 +150,7 @@ generated `.dmg` from `src-tauri/target/release/bundle/dmg/`. The explicit ad-ho
 identity must sign the main app as well as the helper; a linker-only signature
 does not apply the microphone entitlement or seal bundle resources. Use the
 configured Developer ID identity instead of `-` for a signed release. Follow
-**Preview an unpublished plugin on macOS** in `docs/development.md` for the
+**Preview a local plugin build on macOS** in `docs/development.md` for the
 isolated Development bundle.
 
 Preserve the one-time, non-destructive Denote Welcome vault behavior. Existing

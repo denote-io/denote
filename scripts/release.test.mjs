@@ -32,11 +32,9 @@ describe("release version script", () => {
     expect(() => normalizeVersion("release-1")).toThrow("Invalid version");
   });
 
-  it("updates every Denote version source", () => {
+  it("updates every Denote version source and leaves the plugin catalog alone", () => {
     const root = createFixture();
-    const catalogBefore = JSON.parse(
-      readFileSync(join(root, "plugins", "catalog.json"), "utf8"),
-    )[0];
+    const catalogBefore = readFileSync(join(root, "plugins", "catalog.json"), "utf8");
 
     expect(setDenoteVersion(root, "v1.4.0")).toEqual({
       changed: true,
@@ -49,20 +47,8 @@ describe("release version script", () => {
     expect(readFileSync(join(root, "src-tauri", "Cargo.toml"), "utf8")).toContain(
       'description = "Synthetic desktop fixture"',
     );
-    expect(
-      JSON.parse(
-        readFileSync(join(root, "plugins", "catalog.json"), "utf8"),
-      )[0].artifact.url,
-    ).toBe(
-      "https://github.com/mbianchidev/denote/releases/download/v1.4.0/synthetic.plugin-2.3.4.tgz",
-    );
-    const catalogAfter = JSON.parse(
-      readFileSync(join(root, "plugins", "catalog.json"), "utf8"),
-    )[0];
-    expect(catalogAfter).toEqual({
-      ...catalogBefore,
-      artifact: { ...catalogBefore.artifact, url: catalogAfter.artifact.url },
-    });
+    // Plugin archives are released from their own repositories.
+    expect(readFileSync(join(root, "plugins", "catalog.json"), "utf8")).toBe(catalogBefore);
   });
 
   it("checks a tag without changing files", () => {
@@ -96,14 +82,6 @@ describe("release version script", () => {
     expect(() => readDenoteVersions(root)).toThrow(
       "must contain an unprefixed semantic version",
     );
-  });
-
-  it("rejects catalog URLs for a different release tag", () => {
-    const root = createFixture({ catalogReleaseVersion: "0.0.9" });
-
-    expect(() =>
-      setDenoteVersion(root, "v0.1.0", { checkOnly: true }),
-    ).toThrow("Plugin catalog URLs do not match release tag v0.1.0");
   });
 });
 
@@ -198,9 +176,7 @@ cargo() { return 0; }
       join(root, "scripts", name),
     );
   }
-  for (const name of ["updater-release.mjs", "preinstall-validate-plugins.mjs"]) {
-    writeFileSync(join(root, "scripts", name), "process.exit(0);\n");
-  }
+  writeFileSync(join(root, "scripts", "updater-release.mjs"), "process.exit(0);\n");
   git("init", "--quiet", "--initial-branch=main");
   git("config", "core.autocrlf", "false");
   git("config", "commit.gpgSign", "true");
@@ -226,7 +202,6 @@ cargo() { return 0; }
 function createFixture({
   cargoVersion = "0.1.0",
   packageVersion = "0.1.0",
-  catalogReleaseVersion = "0.1.0",
 } = {}) {
   const root = mkdtempSync(join(tmpdir(), "denote-release-"));
   temporaryRoots.push(root);
@@ -263,11 +238,11 @@ function createFixture({
   writeJson(join(root, "plugins", "catalog.json"), [
     {
       manifest: {
-        id: "synthetic.plugin",
+        id: "denote.synthetic",
         version: "2.3.4",
       },
       artifact: {
-        url: `https://github.com/mbianchidev/denote/releases/download/v${catalogReleaseVersion}/synthetic.plugin-2.3.4.tgz`,
+        url: "https://github.com/denote-io/denote-synthetic/releases/download/v2.3.4/denote.synthetic-2.3.4.tgz",
         sha256: "0".repeat(64),
         sizeBytes: 1,
       },

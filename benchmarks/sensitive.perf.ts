@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { build } from "vite";
-import { buildPlugin, pluginDirectories } from "../scripts/plugin-build";
+import { stageReleasedPlugins } from "../src/test/releasedPlugins";
 
 test.use({
   launchOptions: { args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", "--mute-audio"] },
@@ -12,9 +12,7 @@ let errors: string[] = [];
 const primary = process.platform === "darwin" ? "Meta" : "Control";
 
 test.beforeAll(async () => {
-  for (const id of ["denote.text-styling", "denote.note-comments", "denote.presentations", "denote.speech", "denote.credential-store"]) {
-    await buildPlugin(pluginDirectories(id)[0]);
-  }
+  await stageReleasedPlugins(["denote.text-styling", "denote.note-comments", "denote.presentations", "denote.speech", "denote.credential-store"]);
   const result = await build({
     configFile: false, logLevel: "error",
     build: { write: false, lib: { entry: "benchmarks/authoringFixture.ts", name: "syntheticSensitiveFixture", formats: ["iife"] } },

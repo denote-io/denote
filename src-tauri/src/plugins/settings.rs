@@ -616,8 +616,14 @@ mod tests {
     use super::*;
 
     fn git_manifest() -> PluginManifest {
-        serde_json::from_str(include_str!("../../../plugins/git/plugin.json"))
-            .expect("Git plugin manifest")
+        serde_json::from_str::<Vec<crate::plugins::types::PluginCatalogEntry>>(
+            crate::plugins::types::CATALOG_JSON,
+        )
+        .expect("catalog")
+        .into_iter()
+        .find(|entry| entry.manifest.id == "denote.git")
+        .expect("Git plugin catalog entry")
+        .manifest
     }
 
     #[test]

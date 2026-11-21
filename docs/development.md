@@ -13,7 +13,6 @@ at the release tag locked in `package-lock.json`.
 ## Run Denote
 
 ```bash
-node scripts/preinstall-validate-plugins.mjs
 npm ci --ignore-scripts
 npm run prepare:pdf-assets
 npm run prepare:bundled-tools
@@ -27,8 +26,7 @@ the optional `fsevents` native rebuild is denied. Review any new warning with
 `npm install-scripts ls`; do not approve a new package or version without
 inspecting its published script and lockfile provenance.
 
-The root `undici@8.12.3` override patches jsdom's test-only HTTP transport
-without changing the immutable plugin dependency trees.
+The root `undici@8.12.3` override patches jsdom's test-only HTTP transport.
 
 `prepare:pdf-assets` verifies the installed Apache-2.0 `pdfjs-dist` package and
 copies its local CMaps, standard fonts, ICC profile, image-decoder WebAssembly,
@@ -58,12 +56,13 @@ Website tests use Node's built-in test runner and synthetic fixtures. Both
 website commands need only Node.js and npm, not a dependency install or the
 desktop toolchain. `npm test` includes these same tests on every CI platform.
 For website-only watch mode, run `node --test --watch website/*.node.mjs`.
-`build:website` renders the **Plugins** section from `plugins/catalog.json`,
-grouped by the Settings → Plugins categories and linked to each package guide.
-It excludes only the SDK-only Reference plugin and fails on an unknown category,
-a catalog entry without a `plugins/<name>/plugin.json` package, or a missing or
-non-static icon, so preview the built `dist/website`, not the raw
-`website/index.html`. A new plugin needs `website/assets/plugins/<id>.svg`:
+`build:website` renders the **Plugins** section only from `plugins/catalog.json`,
+grouped by the Settings → Plugins categories. Each plugin links to its guide at
+the released tag in its plugin repository and to that repository. It excludes
+only the SDK-only Reference plugin and fails on an unknown category, an
+untrusted plugin ID, or a missing or non-static
+`website/assets/plugins/<id>.svg` icon, so preview the built `dist/website`, not
+the raw `website/index.html`. A new plugin needs that icon:
 copy the matching unmodified icon from the `lucide-static` release that matches
 the locked `lucide-react` version, keeping its license comment, and reuse the
 plugin's activity-rail icon when it has one. `LICENSE-lucide.txt` in that folder
@@ -76,8 +75,9 @@ only from `main` or manual dispatch.
 ## Validate changes
 
 ```bash
-npm run check:plugin-archives -- --base "$(git rev-parse origin/main)"
+npm run fetch:plugins
 npm test
+npm run check:plugins
 npm run verify:bundled-tools
 npm run build
 npm run test:website
@@ -86,6 +86,15 @@ cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
+
+`fetch:plugins` needs network access. It downloads every catalog archive,
+verifies its size, SHA-256 digest, `plugin.json`, and guide against the catalog,
+and stages it in ignored `.plugin-artifacts/` for tests, benchmarks, and native
+checks that exercise released plugin bundles. Staged archives that still match
+the catalog are reused, and tests or benchmarks that find a released bundle
+missing stage it with the same verification. `check:plugins` type checks
+`scripts/*.ts` and validates the catalog offline; see
+[Adopt a plugin release](#adopt-a-plugin-release).
 
 ### Release-hardening checks
 
@@ -98,8 +107,8 @@ execution. Checkout credentials are not retained.
 ```bash
 npm run check:secrets
 npm run build
+npm run fetch:plugins
 npm exec --no -- playwright test benchmarks/accessibility.perf.ts benchmarks/pluginLifecycle.perf.ts
-npm run package:plugins
 cargo test --manifest-path src-tauri/Cargo.toml --locked --lib \
   staged_catalog_packages_complete_native_lifecycle -- --ignored
 ```
@@ -110,9 +119,9 @@ public signing-key hashes/identifiers, and ARIA shortcut strings. It does not
 exclude whole source or test directories. Investigate every new finding; never
 add a credential to the baseline or treat missing scanner execution as success.
 
-The API check emits declarations with the locked compiler into a temporary
-directory and compares the complete API 1 surface with its versioned baseline.
-See [API 1 freeze and deprecation policy](plugins.md#api-1-freeze-and-deprecation-policy)
+The plugin SDK repository's `npm run check:api` compares the complete API 1
+declaration surface with its versioned baseline. See
+[API 1 freeze and deprecation policy](plugins.md#api-1-freeze-and-deprecation-policy)
 before intentionally updating that baseline.
 
 The browser accessibility gate checks core editing, Editor/Security settings,
@@ -120,28 +129,28 @@ all catalog cards, permission review, guides and settings, keyboard recovery,
 and native-startup safe-mode behavior in dark and light/compact layouts. It
 retains axe's complete results, including checks that need human review.
 Passing automation is not screen-reader or native-webview certification.
-The catalog-wide lifecycle journey starts every real compiled worker through
+The catalog-wide lifecycle journey starts every released worker through
 keyboard permission approval, recovers a failed installation, checks every
 available activity-rail surface in dark and light, confirms clock shutdown,
 and verifies worker termination without note, annotation, or audio changes.
-Its native IPC is synthetic; the separate staged native gate verifies the real
-archives, installation and filesystem cleanup on each CI platform.
+It loads the bundles staged by `fetch:plugins`. Its native IPC is synthetic; the
+separate staged native gate verifies the real archives, installation and
+filesystem cleanup on each CI platform.
 Before qualifying a release candidate, separately record VoiceOver on macOS,
 NVDA on Windows, Orca on Linux, 200% zoom/text scaling, forced colors, focus
 visibility/obscuration, and the populated feature surfaces not covered by the
 automated journeys.
 
-The staged native lifecycle gate verifies every candidate archive against its
-catalog size and digest, then uses the isolated debug-only local adapter to
-exercise repeated enable/disable, update, rollback and retry without publishing
-assets or changing the production downloader. It also checks default-disabled
-state, denied unapproved installation, retained plugin metadata, and exact
-note/comment/audio/credential-canary bytes after each transition. CI runs it on
-all three platforms.
-The separate `published_catalog_downloads_complete_native_lifecycle` and
-`source_pinned_downloads_complete_native_lifecycle` tests require published
-network origins. Run them explicitly with `--ignored` only against a published
-catalog; an unpublished URL is not a successful download test.
+The staged native lifecycle gate verifies every archive staged by
+`fetch:plugins` against its catalog size and digest, then uses the isolated
+debug-only local adapter to exercise repeated enable/disable, update, rollback
+and retry without publishing assets or changing the production downloader. It
+also checks default-disabled state, denied unapproved installation, retained
+plugin metadata, and exact note/comment/audio/credential-canary bytes after
+each transition. CI runs it on all three platforms.
+The separate `published_catalog_downloads_complete_native_lifecycle` test
+downloads every catalog URL through the production downloader and requires
+network access. Run it explicitly with `--ignored`.
 
 For manual installation and update qualification, use disposable test profiles
 and synthetic vaults on each supported OS. Check real installer upgrade/removal,
@@ -150,8 +159,8 @@ and user-data preservation. Unit tests and a renderer smoke cannot stand in for
 these checks.
 
 An unpublished review build is not permission to tag, publish, push `main`, or
-pre-bump the application. Follow **Preview an unpublished plugin on macOS**
-below for the isolated Development bundle and separate local archives. A
+pre-bump the application. Follow **Preview a local plugin build on macOS**
+below for the isolated Development bundle and local plugin archives. A
 candidate is not release-qualified until the roadmap prerequisites and every
 manual gate have evidence; only release-blocking fixes may enter its freeze.
 
@@ -365,17 +374,17 @@ and [tauri-apps/tauri#14580](https://github.com/tauri-apps/tauri/issues/14580).
 Compare this manifest with upstream when re-evaluating the coordinated runtime
 pin, and keep the Windows renderer/shutdown smoke gate.
 
-Validate plugin manifests, package structure, documentation, type safety, and
-editor/plugin import boundaries separately with:
+Validate the plugin catalog, bundles, script types, and editor import boundary
+separately with:
 
 ```bash
 npm run check:plugins
 ```
 
-Git status and pull-report checks are:
+Host-side Git status and pull-report checks are:
 
 ```bash
-npx vitest run plugins/git/tests \
+npx vitest run \
   src/plugins/gitRequests.test.ts src/plugins/runtimeMessages.test.ts \
   src/plugins/hostOperations.test.ts src/plugins/workerRuntimeLease.test.ts \
   src/components/SourceControlPanel.test.tsx \
@@ -384,12 +393,13 @@ cargo test --manifest-path src-tauri/Cargo.toml plugins::git::
 cargo test --manifest-path src-tauri/Cargo.toml --test git_signing
 ```
 
-Git 0.10.1 targets Denote 0.9.0. `plugins/git/tests/sync.test.ts` covers
-porcelain rejections, preference-aware recovery, stale branch guards and failed
-pull conflict state. Native synthetic-origin tests cover rejected automatic
-pushes and both real merge/rebase conflict resolution through the production
-typed transport. Every origin, note, commit and identity is invented; local
-transport remains test-only.
+The Git plugin's own tests, including porcelain rejections, preference-aware
+recovery, stale branch guards and failed pull conflict state, live in
+[denote-io/denote-git](https://github.com/denote-io/denote-git). Native
+synthetic-origin tests here cover rejected automatic pushes and both real
+merge/rebase conflict resolution through the production typed transport. Every
+origin, note, commit and identity is invented; local transport remains
+test-only.
 
 Clone tests use local synthetic bare repositories. Folder selection alone must
 leave the directory empty; only the host-bound explicit clone may populate it.
@@ -470,49 +480,49 @@ handles. Git identity tests explicitly disable `core.autocrlf` only in their
 temporary repositories, preventing Windows conversion notices without changing
 production Git configuration or note line-ending preservation.
 
-Plugin source belongs under `plugins/<name>/` and may import
+Each optional plugin lives in its own repository: plugin ID `denote.<name>` is
+developed, tested, versioned, and released in `denote-io/denote-<name>`, such as
+[denote-io/denote-kanban](https://github.com/denote-io/denote-kanban). That
+repository owns the manifest, guide, icon, package metadata, source, tests, CI,
+and **Release** workflow, plus the `releases.json` history of versions first
+published from this repository. Plugin source may import
 `@denote/plugin-sdk`, its own files, and declared third-party packages. It must
-not import from `src/`, `@tauri-apps/*`, or another plugin package. Use
-`plugins/reference/` as the contract example; it is not bundled into
-the Denote application.
+not import Denote's `src/`, `@tauri-apps/*`, or another plugin package.
+[denote-io/denote-reference](https://github.com/denote-io/denote-reference) is
+the contract example; it is not bundled into the Denote application.
 
-Each plugin owns its manifest, guide, icon, package metadata, source, tests, and
-repository-only `releases.json` ledger. Shared catalog and bundle metadata live
-in `plugins/catalog.json` and `plugins/bundles.json`. The public contract is the
-[plugin SDK](https://github.com/denote-io/denote-plugin-sdk), installed from its
-release tag; native Git transport, automatic commits, clone, authentication,
-and executable resolution belong to the trusted host under
+This repository keeps only the catalog and bundle metadata in
+`plugins/catalog.json` and `plugins/bundles.json`, and `check:plugins` rejects a
+`src/` import of any `@denote/plugin-*` package other than the SDK. The public
+contract is the [plugin SDK](https://github.com/denote-io/denote-plugin-sdk),
+installed from its release tag; native Git transport, automatic commits, clone,
+authentication, and executable resolution belong to the trusted host under
 `src-tauri/src/plugins/git/`, never to a downloadable package.
 
-Plugin unit tests belong in `plugins/<name>/tests/`, outside
-`src/`, so the packaged source keeps its strict import boundary while the tests
-still type check with `npm run check:plugins` and run with `npm test`. Use
-`plugins/git/tests/` as the example.
-
-Create a complete package skeleton with:
+Plugin repositories use the SDK's `denote-plugin` command. Scaffold a new
+plugin repository with:
 
 ```bash
-npm run create:plugin -- denote.example "Example plugin" productivity
+npx --package github:denote-io/denote-plugin-sdk#v0.1.1 \
+  denote-plugin create denote-example denote.example "Example plugin"
 ```
 
-The scaffold creates `plugins/example/` with the manifest, required guide
-sections, icon, package metadata, and SDK entrypoint. Commands select a plugin
-by its manifest ID (`denote.example`), not by its directory name. The scaffold
-does not add an invalid unpublished entry to the production catalog.
+The scaffold contains the manifest, required guide sections, icon, activation
+entrypoint, test, TypeScript and Vitest configuration, and CI and release
+workflows. In a plugin repository, `npm test` runs its tests, `npm run check`
+validates the manifest, guide, package metadata, and import boundaries, and
+`npm run package` builds and verifies the reproducible archive in its ignored
+`.plugin-artifacts/`. A plugin enters the Denote catalog only through
+[Adopt a plugin release](#adopt-a-plugin-release).
 
-Build one plugin continuously while editing:
-
-```bash
-npm run dev:plugin -- denote.example
-```
-
-The watcher writes `.plugin-dev/denote.example.tgz`, which is ignored by Git.
-Run `npm run dev:desktop`, open **Settings → Plugins**, and choose **Load local
-plugin archive**. Local archives are available only in the isolated development
-app, are labeled untrusted, and still pass package bounds, path, manifest,
-permission, extraction, entrypoint-integrity, worker-isolation, rollback, and
-cleanup checks. Disable the plugin before loading its rebuilt archive. Use
-`--once` for one build without watching.
+For local development, run `npm ci` and then `npm run dev` in the plugin
+repository. The watcher rebuilds the ignored `.plugin-dev/<plugin-id>.tgz` on
+every change; `npm run dev -- --once` builds it once. Run `npm run dev:desktop`
+here, open **Settings → Plugins**, and choose **Load local plugin archive**.
+Local archives are available only in the isolated development app, are labeled
+untrusted, and still pass package bounds, path, manifest, permission,
+extraction, entrypoint-integrity, worker-isolation, rollback, and cleanup
+checks. Disable the plugin before loading its rebuilt archive.
 The native picker does not wait for Git/gh status probes. Selecting an archive
 starts background verification with a visible loading state; repeated requests
 share the same picker, and cancelling leaves the catalog unchanged. Tool version
@@ -526,23 +536,16 @@ lease preventing overlapping dialogs. Debug builds log panel preparation and
 presentation times without filenames or paths, so picker latency can be
 distinguished from later file verification.
 
-Targeted one-off builds are also available:
+`denote-plugin build` resolves activation entrypoints' conditional package
+exports with the `worker` condition because downloaded plugin code runs in a
+DOM-free module worker. Dependencies that publish separate browser and worker
+builds must select their worker-safe export. Diagram-renderer entrypoints retain
+browser resolution for their separately sandboxed iframe runtime.
 
-```bash
-npm run build:plugin -- denote.example
-```
-
-Activation entrypoints resolve conditional package exports with the `worker`
-condition because downloaded plugin code runs in a DOM-free module worker.
-Dependencies that publish separate browser and worker builds must select their
-worker-safe export. Diagram-renderer entrypoints retain browser resolution for
-their separately sandboxed iframe runtime. Keep
-`scripts/plugin-build.test.ts` aligned with this distinction.
-
-Plugin packages cannot declare npm lifecycle scripts or executable `bin`
-entries. CI checks this before dependency installation, installs with lifecycle
-scripts disabled, audits JavaScript and Rust dependencies, and rejects new
-high-severity dependency vulnerabilities.
+`denote-plugin check` rejects executable `bin` entries in plugin packages.
+Denote's CI installs dependencies with lifecycle scripts disabled, audits
+JavaScript and Rust dependencies, and rejects new high-severity dependency
+vulnerabilities.
 
 The additive `diagram-renderer` capability uses two self-contained build
 outputs. `plugin.json` declares the normal worker `entrypoint` and a distinct
@@ -551,8 +554,8 @@ entrypoint registers metadata only. The renderer entrypoint runs only in the
 host's opaque no-network sandbox after enablement and must export
 `renderDiagram(request)`. Both outputs are package-relative, independently
 bounded to 10 MiB, included in the deterministic archive, and independently
-hashed by the native installer. `npm run build:plugin -- denote.mermaid` builds
-both files without runtime imports.
+hashed by the native installer. `denote-plugin build` builds both files, and
+`denote-plugin check --artifacts` requires them to have no runtime imports.
 
 The 10 MiB per-entrypoint limit applies to every plugin's activation worker and
 optional diagram renderer. Packaging, native installation, startup validation,
@@ -572,11 +575,10 @@ bundle on the application UI thread.
 For Mermaid changes, run:
 
 ```bash
-npm audit --audit-level=low --workspaces --include-workspace-root
+npm audit --audit-level=low
 npm ls pele dompurify
+npm run fetch:plugins
 npx vitest run \
-  plugins/mermaid/tests/compatibility.test.ts \
-  plugins/mermaid/tests/renderer.test.ts \
   src/plugins/diagramRenderers.test.ts \
   src/plugins/runtimeMessages.test.ts \
   src/plugins/workerRuntime.test.ts \
@@ -589,21 +591,24 @@ npm exec --no -- playwright test benchmarks/mermaid.perf.ts
 cargo test --manifest-path src-tauri/Cargo.toml diagram_renderer
 ```
 
-Mermaid plugin 0.3.0 pins [Pele 1.12.0](https://github.com/obsidianmd/pele/releases/tag/1.12.0)
-for Denote v0.12.1 without pre-bumping the application from the latest published
-0.12.0. Pele's [compatibility contract](https://pele.run/compatibility) targets
+Plugin source, tests, and releases live in
+[denote-io/denote-mermaid](https://github.com/denote-io/denote-mermaid). Mermaid
+plugin 0.3.0 uses [Pele 1.12.0](https://github.com/obsidianmd/pele/releases/tag/1.12.0).
+Pele's [compatibility contract](https://pele.run/compatibility) targets
 Mermaid 12.1 syntax with its own layout, not complete Mermaid.js 12.2 parity.
 All 15 original real-parser fixtures passed against Mermaid 12.2.0 and Pele
-before replacement. The shared synthetic inventory now exercises all 30
-existing detector families; formerly mocked-only invalid specialty examples
-were corrected and checked against both parsers before Mermaid.js was removed.
-The existing allowlist still rejects additional upstream/internal families.
-Math remains literal TeX in both strict-renderer baselines; no separate math
-resolver is bundled.
+before replacement. The shared synthetic inventory exercises all 30 existing
+detector families; formerly mocked-only invalid specialty examples were
+corrected and checked against both parsers before Mermaid.js was removed. The
+existing allowlist still rejects additional upstream/internal families. Math
+remains literal TeX in both strict-renderer baselines; no separate math resolver
+is bundled. The root `pele` development dependency is pinned to the same 1.12.0
+release for Welcome-sample syntax checks.
 
-`benchmarks/mermaid.perf.ts` runs the real downloaded renderer through
-`DiagramRendererHost` and its opaque, no-network iframe, independent sanitizer,
-and cancellation path in Light, Dark, and forced colors. It decodes every
+`benchmarks/mermaid.perf.ts` runs the released renderer staged by
+`npm run fetch:plugins` through `DiagramRendererHost` and its opaque,
+no-network iframe, independent sanitizer, and cancellation path in Light, Dark,
+and forced colors. It decodes every
 sanitized result as a standalone SVG image, checks local marker/gradient
 references and resolved colors, and enforces 4.5:1 chart percentage contrast.
 Theme flattening includes gradient stops and rounded corners; a solid
@@ -619,22 +624,22 @@ npm exec --no -- playwright install webkit
 npm exec --no -- playwright test benchmarks/mermaid.perf.ts --browser=webkit
 ```
 
+On macOS, exercise the same opaque-frame and standalone-export checks in WebKit
+as well as CI's Chromium:
+
+```bash
+npm exec --no -- playwright install webkit
+npm exec --no -- playwright test benchmarks/mermaid.perf.ts --browser=webkit
+```
+
 The local Vite renderer build measured 299,799 gzip bytes versus 1,611,804 for
 the previous Mermaid 12.2 package, using Node's default `gzipSync` on each built
 `dist/renderer.js`. These are Denote bundle measurements, not upstream's
 advertised 230 kB or a Denote render-speed benchmark. Re-measure after changing
 the renderer or toolchain rather than treating those figures as a size budget.
-Pele has no runtime dependencies. The current plugin graph removes Mermaid.js,
-its plugin-local DOMPurify and KaTeX, and the now-unused KaTeX/lodash-es
-overrides. Earlier release ledgers, source pins, archives, and their original
-dependency remediations remain immutable.
-
-Until Denote v0.12.1 publishes this plugin asset, use the separate development
-DMG described in **Preview an unpublished plugin on macOS** below.
-`npm run dev:plugin -- denote.mermaid --once` stages
-`.plugin-dev/denote.mermaid.tgz`; select it through **Settings → Plugins → Load
-local plugin archive** in Denote Development. The production downloader never
-falls back to these local bytes, and neither DMG embeds the executable plugin.
+Pele has no runtime dependencies. The current plugin graph removes Mermaid.js
+and its plugin-local DOMPurify and KaTeX. Earlier published archives and their
+original dependency remediations remain immutable.
 
 The independent host sanitizer uses DOMPurify
 [3.4.18](https://github.com/cure53/DOMPurify/releases/tag/3.4.18). It keeps the
@@ -642,237 +647,99 @@ The independent host sanitizer uses DOMPurify
 [GHSA-cg2g-xh64-v4q7](https://github.com/advisories/GHSA-cg2g-xh64-v4q7),
 [GHSA-mrv2-3pqr-j5jr](https://github.com/advisories/GHSA-mrv2-3pqr-j5jr), and
 [GHSA-c6gr-qvv4-5v3f](https://github.com/advisories/GHSA-c6gr-qvv4-5v3f), and
-also fixes a `SAFE_FOR_TEMPLATES` bypass. Mermaid 0.2.9 used 3.4.17. Earlier published plugin archives retain
-their immutable bytes and source provenance.
-The build/test toolchain pins Vite 8.3.8 and Rolldown 1.2.15 together, with
-patched Undici 8.12.3. Vite 8.3.7 and later fix
-[GHSA-p4f5-76q4-ffq7](https://github.com/advisories/GHSA-p4f5-76q4-ffq7) and
-declare Rolldown `~1.2.18`; the root override deliberately keeps
-archive-compatible Rolldown 1.2.15, and `check:plugins` verifies all 20
-current plugin archive digests unchanged with that pair. This compiler refresh uses new patch versions for all
-11 plugin packages, including Git 0.10.1 and Code intelligence 0.1.2. Earlier
-archive identities remain unchanged. Pin compatible compiler inputs and
-validate all plugin digests plus the frontend build when updating the toolchain;
-never repin an existing version to accommodate different compiler output.
-Include the workspace root in npm audits so development dependencies such as
-Vite and jsdom's Undici are covered as well as plugin workspaces.
+also fixes a `SAFE_FOR_TEMPLATES` bypass. Mermaid 0.2.9 used 3.4.17. Earlier
+published plugin archives retain their immutable bytes and source provenance.
+The frontend toolchain pins Vite 8.3.8 with patched Undici 8.12.3. Vite 8.3.7
+and later fix [GHSA-p4f5-76q4-ffq7](https://github.com/advisories/GHSA-p4f5-76q4-ffq7).
+Plugin repositories pin Vite 8.3.8 with Rolldown 1.2.15 themselves to keep their
+archive bytes reproducible; this repository no longer overrides Rolldown. A
+change to a plugin's own dependencies or compiler output belongs in its
+repository and requires a new plugin version. Never replace a released
+version's bytes or provenance.
 
-Before the Pele replacement, the root `katex` override pinned
-[0.18.10](https://github.com/KaTeX/KaTeX/releases/tag/v0.18.10) because Mermaid 12
-otherwise required KaTeX 0.16, which is affected by
-[GHSA-238p-pmpm-9mq7](https://github.com/advisories/GHSA-238p-pmpm-9mq7). Keep
-that compatible patch in historical source pins. KaTeX 0.18.11
-was deprecated after accidentally shipping the
-[0.19 breaking changes](https://github.com/KaTeX/KaTeX/releases/tag/v0.19.0);
-it is not a safe patch-only upgrade. Earlier published plugin archives retain
-their immutable bytes and source provenance.
-Changes to a plugin's own dependencies require an explicitly approved new
-plugin version and committed source pin before `check:plugins` can succeed.
-Never replace a released version's bytes or provenance; its ledger entry
-remains tied to the original source commit.
+### Adopt a plugin release
 
-### Landed plugin release history
+Plugin versions are built, verified, and published by their own repositories.
+Each plugin repository's CI type checks, tests, runs `denote-plugin check`,
+builds a reproducible archive, and checks that the published version still
+rebuilds byte for byte. Its manual **Release** workflow publishes `v<version>`
+with the asset `<plugin-id>-<version>.tgz`. Bump the version in that
+repository's `plugin.json` and `package.json`; a published version is never
+rebuilt with different bytes.
 
-The user-directed merge of
-[#105](https://github.com/mbianchidev/denote/pull/105) establishes the canonical
-0.9.0 catalog: all eleven current plugin versions retain source
-`4e180efefe2801ac3b200c0b9915dc093990b4ff` and the matching Vite 8.3.5 /
-Rolldown 1.2.15 inputs. The Rust-backport integration adopts those exact
-manifests, guides, digests, and source pins, without rebuilding a different
-identity at an existing version.
-
-That merge also selects main's prepared Mermaid 0.2.5 record from source
-`62cc5f14e57fb62b22f6d530e59fec35c89d7ebc`. The conflicting, never-published
-#119 reservation from source `b865816bdfc21c48fc7d74848fb6bbc5aa68641b`
-is abandoned, not substituted for main's artifact. Its original record remains
-in Git history. Nonconflicting older #119 reservations, including Mermaid
-0.2.8, remain unchanged in the ledgers but are not current catalog entries.
-No published asset, main ledger entry, or current plugin source pin is
-rewritten.
-
-### Prepare an immutable plugin version
-
-The 0.9.0 candidate introduces the code-intelligence and Git remote-recovery
-host contracts; those new packages require 0.9.0, not older released hosts.
-Security overrides pin KaTeX 0.18.10 for
-[GHSA-238p-pmpm-9mq7](https://github.com/advisories/GHSA-238p-pmpm-9mq7) and
-source-map-js 1.2.2 for
-[GHSA-68fv-2mgg-jv7q](https://github.com/advisories/GHSA-68fv-2mgg-jv7q).
-Mermaid 0.2.9 combines DOMPurify 3.4.17, compatible KaTeX 0.18.10, and the included
-math license in a new source pin. All canonical main ledger entries stay
-unchanged. Select fresh versions above existing reservations in parallel
-plugin PRs; an unpublished prepared version must not be silently reused.
-Validate with the full `npm audit --audit-level=low`, not only workspace auditing.
-After changing an override, use `npm update <package> --package-lock-only`
-and verify `npm ls <package>` before committing and pinning; a lockfile-only
-install can otherwise retain an older overridden transitive version.
-
-Build and stage one independently downloadable plugin artifact with:
+After the release is public, adopt it here:
 
 ```bash
-npm run package:plugin -- denote.example
-```
-
-The command writes only
-`.plugin-artifacts/denote.example-<plugin-version>.tgz`. That directory is
-ignored: never commit the archive, force-add it, or copy it into Tauri resources
-or an installer.
-
-Commit the plugin source first, together with any relevant SDK, lockfile, and
-build-tool changes. Then pin that full, 40-character source commit for the
-intended **Denote** release tag (not the plugin version):
-
-```bash
-npm run pin:plugin -- denote.example --ref "$(git rev-parse HEAD)" --release v0.1.1
-```
-
-Pinning verifies committed plugin source, SDK, build tooling, compiler
-configurations (including inherited configurations), and lockfile inputs
-before building and again after packaging. It checks a reproducible archive and
-its contents, then atomically writes that plugin's
-`releases.json` ledger before atomically replacing its catalog entry. An
-interruption between writes leaves the immutable version prepared in the ledger;
-retry the exact same pin to finish the catalog update. Do not edit or remove
-the prepared entry to replace its bytes or provenance. Pinning stages the
-verified bytes locally but does not create a tag, upload an asset, or publish a
-release. Commit only the catalog and selected ledger changes in a separate
-metadata commit.
-
-The source commit must be an ancestor of `HEAD`, so pushing the branch also
-publishes the source needed for reproduction. Archive text uses LF endings and
-fixed file modes regardless of checkout line endings or the author's umask.
-Archive compression uses the exact build-only `pako@3.0.2` implementation with
-its legacy hash mode, fixed gzip parameters, and a normalized portable OS byte,
-not the Node runtime's native zlib. Different native zlib builds can compress
-identical tar input differently. The pinned compatibility settings preserve
-existing source-archive bytes; changing the compressor or those settings is an
-archive-format change, not a routine dependency refresh. Golden-digest tests
-and all existing release pins must pass before changing compression.
-
-Pinning uses `.plugin-artifacts/pin.lock`, an exclusive cross-process lock
-containing the pin process's PID. If the process crashes, the lock remains and
-later pins refuse to run rather than stealing it. Inspect the recorded PID with
-your operating system's process tools and confirm no pin process is running.
-Only then remove the exact `.plugin-artifacts/pin.lock` file and retry the same
-pin command. Do not remove the staging directory or alter the immutable ledger.
-If the ledger write completed before the interruption, the identical retry
-finishes the catalog update without replacing the prepared version.
-Interrupted metadata temporary files are ignored and are not compiler inputs.
-
-Every ledger entry records an immutable plugin version, source commit, archive
-origin URL, byte count, and SHA-256 digest. Existing historical versions retain
-their verified commit-addressed raw URLs and exact byte identities. A historical
-download uses only that exact ledger URL and fails if unavailable or invalid;
-it never falls back to a current catalog URL or another source. New versions
-are deterministically built from source rather than recovered from archive blobs
-in Git. The ledger is repository-only, not executable package or app metadata.
-Release preparation may rehost an unchanged artifact under the matching Denote tag
-by changing the current catalog URL; it must not change its ledger origin,
-source commit, size, or digest.
-Before packaging, `npm run release -- --check <version>` verifies that current
-catalog URLs and all application version sources match the intended Denote release.
-
-`provenance.sourceCommit` in the catalog and `sourceCommit` in the ledger mean
-source provenance: they identify the committed source and build inputs, not a
-commit containing a `.tgz`. Pinning never requires a binary archive Git object.
-New source entries also record `sourcePath`, such as `plugins/example`, naming
-the plugin directory at the pinned commit. Verification uses that recorded path
-even if the current package later moves; do not rewrite existing ledger entries
-to follow a directory rename.
-
-Both targeted commands affect only the selected plugin and refuse to replace
-different bytes at an existing version. Neither command bumps versions. When
-one plugin changes, explicitly bump only its own manifest/package version.
-Unchanged plugins retain their bytes, guide, provenance, and metadata.
-
-Run the repository-wide checks and staging command before a release:
-
-```bash
-npm run check:plugin-archives -- --base "$(git rev-parse origin/main)"
+npm run update:plugin -- denote.example 0.2.0
 npm run check:plugins
-npm run package:plugins
-```
-
-`check:plugins` validates manifests, guides, real built entrypoints, types,
-import boundaries, safe archive paths/types/sizes, exact package content, and
-pinned sizes and SHA-256 digests. Historical entries use verified immutable
-downloads; new entries use deterministic source rebuilds. No tracked `.tgz`
-blob is required. `package:plugins` applies the same archive verification and
-stages every current catalog artifact as
-`.plugin-artifacts/<plugin-id>-<plugin-version>.tgz` without editing metadata.
-Set `DENOTE_VERIFY_REMOTE_PLUGIN_ARTIFACTS=1` to additionally verify already
-published current catalog URLs; do not use it for a release whose assets have
-not been published yet.
-
-`check:plugin-archives` needs no installed dependencies. It rejects archive files
-in the Git index, including force-added ignored output. `--base <full-sha>`
-also checks additions across all proposed commits, including an archive added
-and then deleted before the tip; old immutable history is permitted. The base
-comparison also requires every existing ledger entry to remain unchanged and
-rejects a changed catalog digest, size, or source SHA for the same plugin
-version. New ledger versions may be appended; unchanged versions may be
-rehosted through a catalog URL change only.
-Ledgers are matched by stable plugin ID, so moving a self-contained plugin
-directory preserves its recorded history. Merge-resolution-only archive
-additions are checked too, even if a later commit deletes them.
-
-Resolve a base ref to its full commit SHA as shown above. CI runs the guard
-before dependency installation with full history, using the pull request base
-or push's previous commit. Manual runs and all-zero bases omit `--base`, so they
-check the index without a historical metadata comparison.
-
-Check published downloads independently of packaging:
-
-```bash
-npm run check:plugin-downloads -- --source
 npm run check:plugin-downloads
 ```
 
-The first command rebuilds plugins and verifies their ledger-backed source
-recipes or historical origins before a release exists. It never assumes an
-archive exists in a source commit. The second checks the exact URLs embedded in
-the application, reports every unavailable plugin, and verifies the bounded
-download's size and SHA-256. CI checks source recipes; release publication checks
-the public release URLs after publishing, including when retrying an
-already-published release.
+`update:plugin` resolves the `v<version>` tag commit in the plugin repository,
+downloads the release asset through the bounded GitHub downloader, reads
+`plugin.json` and the guide from the archive, and atomically rewrites only that
+plugin's catalog entry with the asset URL, size, SHA-256 digest, and tag commit
+as `provenance.sourceCommit`. A new plugin ID is appended. It refuses different
+bytes for a version already in the catalog and never bumps a version. Review
+`plugins/bundles.json` for new or changed roles, add the website icon for a new
+plugin, and commit only the metadata; never commit an archive. Adopting a plugin
+release does not bump the application version.
 
-Native download/install, enablement commit, disable/reinstall, and update rollback
-smoke checks use temporary application data and a synthetic previous version:
+`check:plugins` type checks `scripts/*.ts` and validates offline that every
+catalog entry passes the SDK schema, uses the trusted Denote publisher, names
+`https://github.com/mbianchidev/denote`, `https://github.com/denote-io/denote`,
+or the plugin's own repository as its manifest repository, points exactly at
+its plugin repository release asset, and records a 40-character source commit.
+It also validates `plugins/bundles.json` and rejects a `src/` import of any
+`@denote/plugin-*` package other than the SDK.
+
+`check:plugin-downloads` downloads every catalog archive over HTTPS from
+approved GitHub hosts and verifies its size, SHA-256 digest, and that its
+`plugin.json` and guide equal the catalog entry. `fetch:plugins` applies the
+same checks, then stages each archive as
+`.plugin-artifacts/<plugin-id>-<version>.tgz` and its files under
+`.plugin-artifacts/<plugin-id>/`, such as
+`.plugin-artifacts/denote.linter/dist/index.js`. `.plugin-artifacts/` is ignored
+by Git.
+
+Catalog `provenance.sourceCommit` identifies the source that built an archive.
+The versions current when plugins moved to their own repositories were
+republished unchanged as plugin repository releases, with the same size,
+SHA-256, manifest, and guide; they keep the `mbianchidev/denote` commit that
+built them. Later versions record the release tag commit in the plugin
+repository. Each plugin repository keeps the `releases.json` history of
+versions published from this repository. Eighteen of the twenty current
+archives rebuild byte for byte from their plugin repositories; Emoji picker
+0.1.3 and Mermaid 0.3.0 were built against an earlier SDK revision, and their
+CI exempts only those exact versions.
+
+Native download/install, enablement commit, disable/reinstall, and update
+rollback smoke checks use temporary application data and a synthetic previous
+version:
 
 ```bash
-cargo test --manifest-path src-tauri/Cargo.toml plugins::download_tests::source_pinned_downloads_complete_native_lifecycle -- --ignored --exact
 cargo test --manifest-path src-tauri/Cargo.toml plugins::download_tests::published_catalog_downloads_complete_native_lifecycle -- --ignored --exact
+npm run fetch:plugins
+cargo test --manifest-path src-tauri/Cargo.toml plugins::download_tests::staged_catalog_packages_complete_native_lifecycle -- --ignored --exact
 ```
 
-These opt-in checks require network access. They exercise the production native
-downloader and integrity boundaries, not renderer worker activation.
-
-The source-pinned native smoke test uses each ledger's exact origin URL. It can
-exercise historical raw pins before a new Denote release, but a newly pinned
-source-built version needs its origin release published before that network
-smoke test can pass. Use `check:plugins` for offline pending-source validation.
-
-An already-pinned plugin builds against the SDK source at its catalog
-`sourceCommit`, read from the SDK's former `packages/plugin-sdk` path in Git
-history, keeping later additive host capabilities out of its immutable archive.
-A new or bumped plugin version builds against the SDK release locked in
-`package-lock.json`.
-Keep full Git history available when rebuilding pinned artifacts. A plugin that
-needs a newly added SDK function must bump its own version before building.
+The published check requires network access and exercises the production native
+downloader and integrity boundaries. The staged check loads the archives from
+`fetch:plugins` through the debug-only local adapter. Neither activates renderer
+workers.
 
 ### Emoji plugin development
 
-Use `npm run dev:plugin -- denote.emoji-picker` with the isolated development
-app to load the local archive. The plugin owns the bundled dataset and manifest;
-the SDK's `emoji-picker` contract and host editor adapters own validation and
-interaction. Do not import its dataset into `src/` or grant workspace/network
+Plugin source, tests, and releases live in
+[denote-io/denote-emoji-picker](https://github.com/denote-io/denote-emoji-picker);
+load its `npm run dev` archive in the isolated development app. The plugin owns
+the bundled dataset and manifest; the SDK's `emoji-picker` contract and host
+editor adapters own validation and interaction. Do not import its dataset into `src/` or grant workspace/network
 permissions to implement insertion.
 
 Targeted coverage includes `src/plugins/emojiPickers.test.ts`,
 `src/plugins/workerRuntime.test.ts`, `src/plugins/usePlugins.test.tsx`, emoji
-editor/component tests, package tests under
-`plugins/emoji-picker/tests/`, and native
-`plugins::emoji_tests`. Keep all note text and paths synthetic. Exercise Rich
+editor/component tests, and native `plugins::emoji_tests`. Keep all note text and paths synthetic. Exercise Rich
 and both source-editor paths, composition, code exclusion, Unicode variants,
 undo/redo, focus restoration, and runtime/locked-vault changes.
 Performance regressions assert that suggestion navigation does not rerender the
@@ -898,18 +765,15 @@ off the edit path when no enabled plugin requests `note-events`, and Git
 refreshes to wait until the source-control view opens and rerun whenever it is
 reopened.
 
-Stage with `npm run package:plugin -- denote.emoji-picker`, commit source and
-build inputs, then pin that source with `npm run pin:plugin -- denote.emoji-picker`
-using `--ref` and `--release` for the intended Denote release. Commit only the
-catalog and release ledger separately, never the archive. The package guide documents dataset
-provenance and regeneration; license notices must be included in the archive's
+The package guide documents dataset provenance and regeneration; license notices must be included in the archive's
 guide, not just an unpackaged source file.
 
 ### JSON and YAML viewer development
 
-Use `npm run dev:plugin -- denote.json-yaml-viewer` and load the ignored
-development archive from **Settings → Plugins**. The plugin requests only
-`structured-viewer`; parser code and `yaml` stay inside the plugin package,
+Plugin source, tests, and releases live in
+[denote-io/denote-json-yaml-viewer](https://github.com/denote-io/denote-json-yaml-viewer).
+The plugin requests only `structured-viewer`; parser code and `yaml` stay inside
+the plugin package,
 while `src/components/StructuredDataViewer.tsx` and the runtime protocol remain
 generic host-owned API-v1 surfaces.
 
@@ -921,8 +785,7 @@ npx vitest run \
   src/plugins/structuredViewers.path.test.ts \
   src/plugins/workerRuntime.test.ts \
   src/plugins/usePlugins.test.tsx \
-  src/components/StructuredDataViewer.test.tsx \
-  plugins/json-yaml-viewer/tests
+  src/components/StructuredDataViewer.test.tsx
 ```
 
 Fixtures must be minimal and synthetic. Cover JSON/YAML scalar and container
@@ -932,18 +795,13 @@ limits, unsupported tags, malformed locations, stale requests, virtualization,
 keyboard focus, pane/tab isolation, lock/unlock, repeated lifecycle operations,
 and disable/re-enable cleanup.
 
-Stage the source-only archive with
-`npm run package:plugin -- denote.json-yaml-viewer`. Commit source, SDK, host,
-tests, docs, dependency manifests, and lockfile first; pin that full commit with
-`npm run pin:plugin -- denote.json-yaml-viewer --ref "$(git rev-parse HEAD)"
---release <Denote-tag>`, then commit only its catalog and ledger metadata.
-
 ### Kanban board development
 
-Use `npm run dev:plugin -- denote.kanban` and load the ignored development
-archive from **Settings → Plugins**. The plugin requests only `kanban-board`.
-Representation-specific parsing and source splicing stay in
-`plugins/kanban/src/board.ts`; `src/components/KanbanBoardEditor.tsx`, path
+Plugin source, tests, and releases live in
+[denote-io/denote-kanban](https://github.com/denote-io/denote-kanban). The plugin
+requests only `kanban-board`. Representation-specific parsing and source
+splicing stay in that repository's `src/board.ts`;
+`src/components/KanbanBoardEditor.tsx`, path
 routing, autosave, links, focus, and the runtime protocol remain generic
 host-owned API-v1 surfaces.
 
@@ -957,8 +815,7 @@ npx vitest run \
   src/plugins/workerRuntime.test.ts \
   src/plugins/usePlugins.test.tsx \
   src/components/KanbanBoardEditor.test.tsx \
-  src/App.test.tsx \
-  plugins/kanban/tests
+  src/App.test.tsx
 ```
 
 Use only synthetic board content. Cover initialization after existing Markdown,
@@ -975,21 +832,15 @@ collisions, output-size refusal, and in-flight source/read-mode changes.
 Format ownership must be unique, released on stop, and preserved through the
 actual isolated worker bridge. Old suffix-only registrations must still work.
 
-Stage the source-only archive with
-`npm run package:plugin -- denote.kanban`. Commit source, SDK, host, tests, docs,
-dependency manifests, and lockfile first; pin that full commit with
-`npm run pin:plugin -- denote.kanban --ref "$(git rev-parse HEAD)" --release
-<Denote-tag>`, then commit only its catalog and ledger metadata.
-
 ### Note graph development
 
-Use `npm run dev:plugin -- denote.note-graph` and load the ignored development
-archive from **Settings → Plugins**. The plugin requests only `note-graph`.
-Markdown link parsing, the transient note map, incremental update handling,
-target resolution, graph traversal, filtering, and ranking stay in
-`plugins/note-graph/`. `src/components/NoteGraphPanel.tsx`, bounded snapshot
-construction, activity-rail integration, file opening, focus, and the runtime
-protocol remain generic host-owned API-v1 surfaces.
+Plugin source, tests, and releases live in
+[denote-io/denote-note-graph](https://github.com/denote-io/denote-note-graph).
+The plugin requests only `note-graph`. Markdown link parsing, the transient note
+map, incremental update handling, target resolution, graph traversal, filtering,
+and ranking stay in that repository. `src/components/NoteGraphPanel.tsx`,
+bounded snapshot construction, activity-rail integration, file opening, focus,
+and the runtime protocol remain generic host-owned API-v1 surfaces.
 
 Run focused coverage with:
 
@@ -1002,8 +853,7 @@ npx vitest run \
   src/plugins/usePlugins.test.tsx \
   src/components/ActivityRail.test.tsx \
   src/components/NoteGraphPanel.test.tsx \
-  src/App.test.tsx \
-  plugins/note-graph/tests
+  src/App.test.tsx
 ```
 
 Use only synthetic Markdown. Cover inline and full/collapsed/shortcut reference
@@ -1020,22 +870,15 @@ response to dragging, pointer coordinate conversion through zoom/letterboxing,
 click-versus-drag behavior, release settling, and reduced-motion behavior
 without machine-timing assertions.
 
-Stage the source-only archive with
-`npm run package:plugin -- denote.note-graph`. Commit source, SDK, host, tests,
-docs, dependency manifests, and lockfile first; pin that full commit with
-`npm run pin:plugin -- denote.note-graph --ref "$(git rev-parse HEAD)"
---release <Denote-tag>`, then commit only its catalog and release-ledger
-metadata. Never commit the generated `.tgz`.
-
 ### Calendar plugin development
 
-Use `npm run dev:plugin -- denote.calendar` and load the ignored archive in the
-isolated development application. Calendar targets Denote 0.6.0 and requests only
-the `calendar` capability. Filename mapping, settings interpretation, and YAML
-date parsing belong to `plugins/calendar/`; the host owns its UI, bounded
-snapshots, worker protocol, and the native no-replace file creation adapter.
-Calendar 0.2.0 adds advertised Created/Last updated views; preserve the immutable
-0.1.0 ledger entry when pinning it. Cover both explicit `type: daily` markers and
+Plugin source, tests, and releases live in
+[denote-io/denote-calendar](https://github.com/denote-io/denote-calendar).
+Calendar targets Denote 0.6.0 and requests only the `calendar` capability.
+Filename mapping, settings interpretation, and YAML date parsing belong to the
+plugin; the host owns its UI, bounded snapshots, worker protocol, and the native
+no-replace file creation adapter. Calendar 0.2.0 and later advertise Created and
+Last updated views. Cover both explicit `type: daily` markers and
 legacy filenames, unknown timestamps, filesystem-date changes, stale tree data,
 time-zone projection, and older dated-only providers. Native migration 16
 retains filesystem creation times across atomic note replacements without using
@@ -1043,7 +886,6 @@ the note-statistics row's creation/opened timestamps as file dates.
 
 ```bash
 npx vitest run \
-  plugins/calendar/tests \
   src/lib/calendar.test.ts \
   src/plugins/calendars.test.ts \
   src/components/CalendarPanel.test.tsx \
@@ -1062,18 +904,12 @@ existing-file byte preservation with synthetic fixtures only. On constrained
 machines, use Vitest `--maxWorkers=1` and Cargo `--jobs 2` rather than increasing
 timeouts or changing application behavior.
 
-Stage with `npm run package:plugin -- denote.calendar`. Commit the complete
-source/build inputs before pinning with
-`npm run pin:plugin -- denote.calendar --ref "$(git rev-parse HEAD)" --release v0.6.0`.
-Commit the resulting catalog and release ledger separately; archives stay
-ignored and are published only by the ordinary release workflow.
-
 ### Reminders plugin development
 
-Use `npm run dev:plugin -- denote.reminders` and load the ignored archive in the
-isolated development application. Reminders targets Denote 0.7.1 and requests
-both `reminders` and `notifications`; registration must fail when either
-approval is absent. Plugin code owns optional Markdown target parsing,
+Plugin source, tests, and releases live in
+[denote-io/denote-reminders](https://github.com/denote-io/denote-reminders).
+Reminders targets Denote 0.7.1 and requests both `reminders` and
+`notifications`; registration must fail when either approval is absent. Plugin code owns optional Markdown target parsing,
 civil-time/DST and recurrence resolution, storage migration, vault-scoped
 storage, quotas, and typed state transitions. The host owns the activity-rail
 panel, edit form, banner stack, numbered badge, 30-second wall-clock rechecks,
@@ -1081,7 +917,6 @@ focus catch-up, generation guards, native notification dispatch, and teardown.
 
 ```bash
 npx vitest run \
-  plugins/reminders/tests \
   src/plugins/runtimeMessages.test.ts \
   src/plugins/workerRuntime.test.ts \
   src/plugins/usePlugins.test.tsx \
@@ -1109,25 +944,18 @@ and badge counts. Native dispatch success only means the operating system
 accepted the request; do not test Focus or notification-center policy as
 delivery success.
 
-Stage with `npm run package:plugin -- denote.reminders`. Commit SDK, host, plugin,
-tests, docs, lockfile, and Welcome `plugins-v3` inputs first. Pin that full
-source commit with
-`npm run pin:plugin -- denote.reminders --ref "$(git rev-parse HEAD)"
---release <Denote-tag>`, then commit only the generated catalog and
-`plugins/reminders/releases.json` metadata. Never commit the `.tgz`.
-
 ### Code intelligence plugin development
 
-Use `npm run dev:plugin -- denote.code-intelligence` and the isolated development
-app's local archive picker. The package requests `code-intelligence`,
-`project-context`, and `sidebar`. It contains adapter metadata/protocol handling,
-not UI or native process implementations. Install tools yourself and explicitly
+Plugin source, tests, and releases live in
+[denote-io/denote-code-intelligence](https://github.com/denote-io/denote-code-intelligence).
+The package requests `code-intelligence`, `project-context`, and `sidebar`. It
+contains adapter metadata/protocol handling, not UI or native process
+implementations. Install tools yourself and explicitly
 approve them in the host; tests use synthetic Node protocol servers and never
 run a developer's real language/debug configuration.
 
 ```bash
 npx vitest run \
-  plugins/code-intelligence/tests \
   src/plugins/codeHost.test.ts src/plugins/codeIntelligence.test.ts \
   src/plugins/runtimeMessages.test.ts src/plugins/workerRuntime.test.ts \
   src/plugins/hostOperations.test.ts src/plugins/usePlugins.test.tsx \
@@ -1147,32 +975,33 @@ responses, optional capabilities, suspended reference lifetimes, synthetic
 source edits, keyboard navigation and formatting, encrypted refusal and shutdown.
 
 The frozen `plugins-v4` Welcome inventory adds only the code intelligence
-exercise; previous markers/inventories and deleted examples stay untouched.
-Stage the package, commit all source/SDK/build/lock inputs, then pin its full
-source commit for the intended Denote release and commit the generated catalog
-and `plugins/code-intelligence/releases.json` separately. No tool executable or
-plugin archive belongs in Git or a desktop installer.
+exercise; previous markers/inventories and deleted examples stay untouched. No
+tool executable or plugin archive belongs in Git or a desktop installer.
 
 ### Linter, build and terminal plugin development
 
 The independent packages are `denote.linter`, `denote.compiler`, and
-`denote.terminal`. Their workers register typed host surfaces only; compiler
-and linter share SDK diagnostics, not package implementation. Commands remain
+`denote.terminal`, developed in
+[denote-io/denote-linter](https://github.com/denote-io/denote-linter),
+[denote-io/denote-compiler](https://github.com/denote-io/denote-compiler), and
+[denote-io/denote-terminal](https://github.com/denote-io/denote-terminal). Their
+workers register typed host surfaces only; compiler and linter share SDK
+diagnostics, not package implementation. Commands remain
 unconfigured until explicit executable/argument approval. Native tooling is
 refused for every encrypted vault, including while unlocked.
 
 ```bash
 npm exec --no -- vitest run \
-  plugins/linter/tests plugins/compiler/tests plugins/terminal/tests \
   src/plugins/toolingHost.test.ts src/plugins/terminalHost.test.ts \
   src/plugins/toolingRuntime.test.ts src/lib/codeEditor.test.tsx
 cargo test --manifest-path src-tauri/Cargo.toml tooling --lib
 npm run build
+npm run fetch:plugins
 npm exec --no -- playwright test benchmarks/tooling.perf.ts
 ```
 
-The browser gate runs real verified worker bundles and the bundled Ghostty WASM
-against synthetic native IPC. It exercises approval without execution, source
+The browser gate runs the released worker bundles staged by `fetch:plugins` and
+the bundled Ghostty WASM against synthetic native IPC. It exercises approval without execution, source
 markers/gutters, reviewed fixes, clean-run replacement, explicit unsaved-build
 handling, failed saves, streamed output, cancellation, failure status, Unicode,
 keyboard focus escape, terminal search/copy, close confirmation and unsupported
@@ -1203,34 +1032,26 @@ redaction across every possible split in a synthetic output line.
 The frozen `plugins-v8` inventory adds only the three tooling exercises.
 Earlier inventories and marker bytes remain unchanged; existing files are
 preserved, locked vaults defer, unlocked additions use ciphertext, and deleted
-v8 examples are not restored. Source, SDK and build inputs must be committed
-before pinning each new `0.1.0` package for the intended Denote release. Keep
-the application at the latest published version; only the release script bumps it.
+v8 examples are not restored. Keep the application at the latest published
+version; only the release script bumps it.
 
-For unpublished local handoff, follow **Preview an unpublished plugin on macOS**
-and stage the three archives separately:
-
-```bash
-npm run dev:plugin -- denote.linter --once
-npm run dev:plugin -- denote.compiler --once
-npm run dev:plugin -- denote.terminal --once
-```
-
-Load the ignored `.plugin-dev/<id>.tgz` files through Denote Development's local
+For an unpublished local handoff, run `npm run dev -- --once` in each plugin
+repository and follow **Preview a local plugin build on macOS**. Load the
+ignored `.plugin-dev/<plugin-id>.tgz` files through Denote Development's local
 archive picker. Neither the development nor production DMG embeds plugin
 archives, and production downloads never fall back to local files.
 
 ### Time tracking plugin development
 
-Use `npm run dev:plugin -- denote.time-tracking` with the isolated development
-application. Version 0.2.0 requests `time-tracking`, `clocks`, and `notifications`;
+Plugin source, tests, and releases live in
+[denote-io/denote-time-tracking](https://github.com/denote-io/denote-time-tracking).
+Since 0.2.0, the plugin requests `time-tracking`, `clocks`, and `notifications`;
 its worker owns note sessions, correction history, and the standalone stopwatch,
 countdowns, and alarms. The host owns UI, native clock samples, scheduling,
 notification dispatch, gesture-enabled sound, and explicit exports.
 
 ```bash
 npx vitest run \
-  plugins/time-tracking/tests \
   src/plugins/runtimeMessages.test.ts src/plugins/workerRuntime.test.ts \
   src/plugins/usePlugins.test.tsx src/plugins/useTimeTracking.test.tsx src/plugins/useClocks.test.tsx \
   src/lib/clockSound.test.ts src/components/ClockPanel.test.tsx src/components/ClockBanners.test.tsx \
@@ -1260,27 +1081,22 @@ wall-clock duration.
 
 The Welcome `plugins-v5` inventory contains only `plugins/Time tracking.md`.
 Keep earlier inventories/markers and edited/deleted examples unchanged.
-Commit source, SDK, build inputs, documentation, and lockfile first, then pin
-`denote.time-tracking` 0.2.0 for Denote `v0.10.0` and commit its catalog/ledger
-separately. The earlier prepared 0.1.0 reservation remains immutable, even
-though it was not published. Existing plugin source pins and archive identities
-stay unchanged.
 
 ### Advanced authoring plugin development
 
 Phase 5 adds independent `denote.text-styling`, `denote.note-comments`, and
-`denote.presentations` packages targeting Denote 0.11.0. Text styling and comments
-remain 0.1.0. Presentations 0.1.1 adds standard `---` slide separators alongside
-`===`; its earlier prepared 0.1.0 ledger entry stays immutable.
-Feature branches retain the latest published application version;
-the approved authoring capabilities also gate compatibility in local previews.
-Use `npm run dev:plugin -- <id>` and the isolated development application.
-Their shared additive contract is the SDK's `src/authoring.ts`;
-downloaded implementations stay outside the renderer.
+`denote.presentations` packages targeting Denote 0.11.0, developed in
+[denote-io/denote-text-styling](https://github.com/denote-io/denote-text-styling),
+[denote-io/denote-note-comments](https://github.com/denote-io/denote-note-comments),
+and [denote-io/denote-presentations](https://github.com/denote-io/denote-presentations).
+Presentations accepts standard `---` slide separators alongside `===` since
+0.1.1. Feature branches retain the latest published application version; the
+approved authoring capabilities also gate compatibility in local previews.
+Their shared additive contract is the SDK's `src/authoring.ts`; downloaded
+implementations stay outside the renderer.
 
 ```bash
 npx vitest run \
-  plugins/text-styling/tests plugins/note-comments/tests plugins/presentations/tests \
   src/components/AdvancedAuthoring.test.tsx src/components/AuthoringMarkdownEditor.test.tsx \
   src/components/NoteCommentsPanel.test.tsx src/components/PresentationEditor.test.tsx \
   src/plugins/useHighlightIndex.test.tsx src/lib/authoring.test.ts \
@@ -1290,11 +1106,12 @@ cargo test --manifest-path src-tauri/Cargo.toml --locked --lib note_comments
 cargo test --manifest-path src-tauri/Cargo.toml --locked --lib plugin_v6_
 npx tsc --noEmit -p tsconfig.benchmarks.json
 npm run build
+npm run fetch:plugins
 npm exec --no -- playwright test benchmarks/authoring.perf.ts
 ```
 
-The production-browser gate builds the three real worker entrypoints and mocks
-only native IPC with invented notes. It exercises exact Rich formatting,
+The production-browser gate loads the three released worker entrypoints staged
+by `fetch:plugins` and mocks only native IPC with invented notes. It exercises exact Rich formatting,
 sidecar anchoring and ambiguous-orphan recovery, source preservation, real
 full-screen keyboard navigation, autoplay, and return to ordinary notes.
 Unit checks measure every palette pair against 4.5:1, absolute late-tick
@@ -1302,12 +1119,9 @@ deadlines, source/sidecar conflicts, malformed YAML, ownership, unknown fields,
 symlink refusal, encryption sweeps, and lock/switch disposal. Never send private
 selection bookmarks or editor functions across the worker boundary.
 
-Source dependency validation compiles TypeScript with the same Vite/Oxc
-toolchain before inspecting JavaScript imports. Erased type-only declarations
-do not become runtime dependencies. Folder, editor, Tauri, and cross-plugin
-boundaries are still checked on the original source, including type imports.
-Runtime imports, side effects, re-exports, dynamic imports, and `require` remain
-subject to dependency approval and the self-contained archive check.
+Plugin repositories enforce source import boundaries with
+`denote-plugin check`; `denote-plugin check --artifacts` also requires
+self-contained built entrypoints without runtime imports.
 
 The pinned Wry 0.55.1 enables WebKit element fullscreen only behind its optional
 [`fullscreen` feature](https://github.com/tauri-apps/wry/blob/wry-v0.55.1/src/wkwebview/mod.rs#L386-L388),
@@ -1324,34 +1138,33 @@ Welcome `plugins-v6` adds only `Text styling.md`, `Note comments.md`, and
 paths and user edits are preserved; deleted applied samples are never restored.
 Encrypted vaults receive only ciphertext after unlock.
 
-Commit reviewed source, SDK, docs, tests, and lockfile before pinning each new
-package for `v0.11.0`; commit catalog/ledger metadata separately. Do not repin
-unchanged existing versions or include archives in the installer.
-
 ### Sensitive plugin development
 
-Phase 6 adds isolated `denote.speech` and `denote.credential-store` packages.
-Keep the application at its latest published version; plugin publication/pins
-for the intended release are separate. Read
-[the threat model and cryptographic design](phase-6-security.md) before changing
-these boundaries. The pre-implementation design review on 2026-10-27 reported
-no blocking vulnerabilities; that is not an independent production certification
-or a guarantee against OS-owned plaintext copies.
+Phase 6 adds isolated `denote.speech` and `denote.credential-store` packages,
+developed in
+[denote-io/denote-speech](https://github.com/denote-io/denote-speech) and
+[denote-io/denote-credential-store](https://github.com/denote-io/denote-credential-store).
+Keep the application at its latest published version; plugin releases are
+separate. Read
+[the threat model and cryptographic design](phase-6-security.md) before
+changing these boundaries. The pre-implementation design review on 2026-10-27
+reported no blocking vulnerabilities; that is not an independent production
+certification or a guarantee against OS-owned plaintext copies.
 
 ```bash
 npx vitest run \
-  plugins/speech/tests plugins/credential-store/tests \
   src/components/CredentialStorePanel.test.tsx src/components/SpeechPanel.test.tsx \
   src/lib/speech.test.ts src/lib/speechCapture.test.ts src/lib/speechShortcut.test.ts src/lib/shortcuts.test.ts \
   src/components/AuthoringMarkdownEditor.test.tsx src/components/PresentationEditor.test.tsx
 cargo test --manifest-path src-tauri/Cargo.toml --locked --lib
 npx tsc --noEmit -p tsconfig.benchmarks.json
 npm run build
+npm run fetch:plugins
 npm exec --no -- playwright test benchmarks/authoring.perf.ts benchmarks/sensitive.perf.ts
 ```
 
-The browser journey uses real compiled workers, editor transactions, keyboard
-navigation, and the real capture worklet with Chromium's synthetic microphone
+The browser journey uses the released workers staged by `fetch:plugins`, editor
+transactions, keyboard navigation, and the real capture worklet with Chromium's synthetic microphone
 and muted output. Only native IPC is mocked. It verifies portable WAV links,
 review-before-insertion, masked credentials, fresh export authentication, exact
 source preservation, and removal. Native tests independently verify ciphertext
@@ -1459,11 +1272,9 @@ records. The independent credential container never enters this table.
 
 Welcome `plugins-v7` adds only `Speech.md` and `Credential store.md`. Earlier
 markers, deleted applied samples, existing bytes, encryption deferral, and
-explicit opt-in remain unchanged. For an unpublished plugin handoff, follow
-**Preview an unpublished plugin on macOS** below and stage each archive with
-`npm run dev:plugin -- denote.speech --once` and
-`npm run dev:plugin -- denote.credential-store --once`.
-Do not add local downloads to the production runtime or include model/plugin
+explicit opt-in remain unchanged. For an unpublished plugin handoff, run
+`npm run dev -- --once` in each plugin repository and follow **Preview a local
+plugin build on macOS** below. Do not add local downloads to the production runtime or include model/plugin
 archives in either installer.
 
 Device-dependent microphone permission, installed voices, screen-reader use,
@@ -1503,28 +1314,22 @@ npx tsc --noEmit -p tsconfig.node.json
 
 ## Dependency update boundaries
 
-Dependabot excludes `plugins/**` from npm version updates. These are immutable
-plugin source inputs, not independently upgradable manifests. The plugin SDK is
-a `github:denote-io/denote-plugin-sdk#v<version>` dependency; update it to a
-new SDK release tag deliberately, because already pinned plugin versions keep
-building against the SDK source at their own source commits. Cargo backports in `src-tauri/vendor/` are reached only
+Plugin dependencies are managed in each plugin repository, not here. The plugin
+SDK is a `github:denote-io/denote-plugin-sdk#v<version>` dependency; update it
+to a new SDK release tag deliberately. It changes the host contract and catalog
+validation; published plugin archives keep the SDK version they were built with.
+Cargo backports in `src-tauri/vendor/` are reached only
 through `[patch.crates-io]`, never as application workspace members, so
 Dependabot reads their manifests as read-only path sources and skips the
 patched crates. Do not exclude `vendor/**` from the Cargo update: Cargo must
 load those manifests to resolve the graph, and the exclusion makes every Cargo
 update fail. Do not make the backports application workspace members either:
-Dependabot would then rewrite their reviewed requirements. The shared
-`mdast-util-from-markdown`
-dependency also requires explicitly approved new plugin versions before its
-resolved bytes change. Keep existing catalog entries, release ledgers, and
-archive digests unchanged when updating host-only dependencies.
+Dependabot would then rewrite their reviewed requirements. Keep existing catalog
+entries and archive digests unchanged when updating host-only dependencies.
 
-Root dependency updates must retain every SDK and plugin workspace in
-`package-lock.json`, including their links and transitive dependencies.
-Dependabot's excluded manifest paths do not exclude those workspaces from
-`npm ci` or the audit. Regenerate from the last complete reviewed lockfile with
-`npm install --package-lock-only --ignore-scripts --workspaces --include-workspace-root`;
-verify plugin archive identities before accepting the result.
+After changing an override, use `npm update <package> --package-lock-only` and
+verify `npm ls <package>` before committing; a lockfile-only install can
+otherwise retain an older overridden transitive version.
 
 The npm `@tauri-apps/*` packages and Cargo Tauri, Tao, Wry, WebView2, and
 URLPattern families remain manual updates under **Re-evaluate the Windows
@@ -1533,27 +1338,10 @@ These automation boundaries do not replace the JavaScript and source-aware
 Rust audits; any security fix crossing them still requires the documented
 compatibility or plugin-release procedure.
 
-The Denote 0.10.0 refresh updates Mermaid to 12.2.0 and the shared
-`mdast-util-from-markdown` graph to 2.1.0. Fresh plugin identities are Mermaid
-0.2.10, Note graph 0.1.7, Reminders 0.3.3, and Advanced task lists 0.1.4.
-Reminders also adopts the shared civil-time helpers. Commit all source,
-SDK/build inputs, guides, legal notices, and the installed lock graph first;
-pin these four packages and Time tracking 0.2.0 to that full source SHA with
-`--release v0.10.0`, then commit appended ledgers/catalog separately.
-Unchanged packages retain their existing source identities and bytes.
-
 Keep the published v0.9.0 DOMPurify remediation from issue #130: canonical
 DOMPurify 3.4.18, source-map-js 1.2.2, and Undici 8.12.3 remain security
-overrides. KaTeX 0.18.10 and lodash-es 4.18.1 remain fixed in historical Mermaid
-source pins, but leave the current graph with the Pele replacement.
-Deprecated KaTeX 0.18.11 accidentally
-included breaking 0.19 changes and is not a routine patch upgrade. Retain Vite
-8.3.8, archive-compatible Rolldown 1.2.15, and pako 3.0.3. The
-[pako patch](https://github.com/nodeca/pako/compare/3.0.2...3.0.3)
-preserves the canonical gzip fixture and all 20 current plugin archive sizes
-and SHA-256 digests with the existing `legacyHash` and portable-header settings.
-Do not rewrite old
-ledger entries or repin old versions to fix already-published remediation.
+overrides. The root development dependencies `yaml` 2.9.1 and `pele` 1.12.0 are
+exact pins for Welcome-sample syntax checks.
 The host-only frontend updates use Lexical 0.53.0, @mdxeditor/editor 4.5.0,
 @pierre/diffs 1.6.4, lucide-react 1.74.0, mdast-util-to-markdown 2.2.3,
 PDF.js 6.5.438, zbsearch 4.0.4, @types/node 26.6.6,
@@ -1563,12 +1351,10 @@ Tauri-family upgrade is implied. jsdom 31 resolves unitless computed
 `line-height` to pixels, as browsers do, so style assertions compare the
 resolved pixel value.
 
-After pinning, inspect `npm ls pele mdast-util-from-markdown dompurify
-rolldown`, run full and workspace-root `npm audit --audit-level=low`,
-the affected plugin tests and full suite, `check:plugins`, `package:plugins`,
-`check:plugin-downloads -- --source`, `check:plugin-archives -- --base
-<full-origin-main-SHA>`, and `npm run build`. Check the real Mermaid entrypoint
-and archive limits, native/CI gates, and macOS DMG handoff as usual.
+After a dependency update, inspect `npm ls pele dompurify`, run
+`npm audit --audit-level=low`, the affected tests and full suite,
+`fetch:plugins`, `check:plugins`, and `npm run build`. Check native/CI gates and
+the macOS DMG handoff as usual.
 
 ## Rust dependency audits and Linux backports
 
@@ -2203,11 +1989,13 @@ runtime family.
 
 ## GitHub Actions validation
 
-CI runs on pull requests, pushes to `main`, and manual dispatch. The plugin
-archive guard, JavaScript and Rust security audits, and macOS, Windows, and Linux
-validation remain mandatory within each run.
-The JavaScript audit includes the workspace root as well as plugins, so Vite
-and jsdom/Undici development dependencies cannot escape the security gate.
+CI runs on pull requests, pushes to `main`, and manual dispatch. The
+JavaScript and Rust security audits and macOS, Windows, and Linux validation
+remain mandatory within each run. `npm audit --audit-level=high` covers
+development dependencies such as Vite and jsdom's Undici as well as runtime
+packages. Each platform job runs `npm run fetch:plugins` before `npm test`, then
+`check:plugins`, so every catalog archive's size, digest, manifest, and guide is
+verified on each run.
 
 The security job caches the pinned `cargo-audit` installation and Cargo
 downloads, not the advisory database or audit results. The cache key includes
@@ -2245,22 +2033,23 @@ uploads the screenshot and measured frame evidence.
 npm run tauri build
 ```
 
-### Preview an unpublished plugin on macOS
+### Preview a local plugin build on macOS
 
-The production DMG cannot download a plugin asset until its intended release is
-published. To test a staged plugin without publishing or changing the production
-downloader, build the separate development application:
+The production DMG downloads only the plugin versions published in its catalog.
+To test an unpublished plugin build without publishing it or changing the
+production downloader, build the separate development application here:
 
 ```bash
 CI=true APPLE_SIGNING_IDENTITY=- NODE_ENV=development CARGO_BUILD_JOBS=2 \
   npm run tauri build -- --debug --config src-tauri/tauri.dev.conf.json --bundles app,dmg
-npm run dev:plugin -- denote.calendar --once
 ```
 
+In the plugin repository, such as `denote-io/denote-calendar`, run
+`npm ci` and `npm run dev -- --once` to write `.plugin-dev/denote.calendar.tgz`.
 Open the DMG in `src-tauri/target/debug/bundle/dmg/`. **Denote Development** uses
 its own application identity, state, plugin storage, and keychain namespace.
-Choose **Settings → Plugins → Load local plugin archive** and select
-`.plugin-dev/denote.calendar.tgz`.
+Choose **Settings → Plugins → Load local plugin archive** and select that
+archive.
 
 Both development flags matter: `NODE_ENV=development` retains the frontend's
 local-archive control, while `--debug` includes the native development-only
@@ -2558,8 +2347,8 @@ Feature and dependency PRs retain the latest published application version.
 Only the release command below advances the root npm, Cargo, and Tauri
 application versions. Do not run `npm run release -- <next-version>` while
 preparing a feature PR: that makes the later release command produce no version
-changes. Preparing new plugin versions, source pins, or catalog URLs for the
-intended release does not require an application-version bump.
+changes. Adopting new plugin releases in the catalog does not require an
+application-version bump.
 
 From a clean `main` branch, run the release script with either an unprefixed
 semantic version or the matching `v`-prefixed tag:
@@ -2572,23 +2361,22 @@ semantic version or the matching `v`-prefixed tag:
 
 The script fetches `origin`, fast-forwards `main`, refuses local-only commits or
 an existing release tag, checks updater provisioning, installs dependencies
-without lifecycle scripts after validating plugin package metadata, runs the
-complete release validation suite, and updates `package.json`, `package-lock.json`,
-`src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`,
-`src-tauri/tauri.conf.json`, and every current plugin catalog URL. The URLs
-target the matching versioned GitHub Release while retaining each archive's
-source commit, checksum, and size. Only those release files may change. After
-validation, the script creates an unsigned `Release v<version>` commit, pushes
-`main`, then creates and pushes the matching annotated tag. Both messages are
-generated automatically as `Release v<version>` without opening an editor,
-including when `tag.gpgSign` enables tag signing. The commit stays unsigned;
-the tag retains the configured signing policy.
+without lifecycle scripts, and updates `package.json`, `package-lock.json`,
+`src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, and
+`src-tauri/tauri.conf.json`. It does not change `plugins/catalog.json`. It then
+runs the complete release validation suite, including `npm run fetch:plugins`,
+`npm test`, `npm run check:plugins`, and `npm run check:plugin-downloads`. Only
+those release files may change. After validation, the script creates an
+unsigned `Release v<version>` commit, pushes `main`, then creates and pushes the
+matching annotated tag. Both messages are generated automatically as
+`Release v<version>` without opening an editor, including when `tag.gpgSign`
+enables tag signing. The commit stays unsigned; the tag retains the configured
+signing policy.
 
 Tags must use semantic versions and point to a commit on `main`. The release
 workflow validates the tag against every version source and builds every
-platform before it creates a GitHub Release. Every release dependency install is
-preceded by `node scripts/preinstall-validate-plugins.mjs` and uses
-`npm ci --ignore-scripts`.
+platform before it creates a GitHub Release. Every release dependency install
+uses `npm ci --ignore-scripts`.
 
 Non-packaging Linux jobs use `ubuntu-latest`. The Linux release builder alone
 stays on `ubuntu-22.04` to preserve the existing glibc/WebKitGTK baseline for
@@ -2600,31 +2388,26 @@ their architectures and minimum-OS settings remain unchanged. Use only
 [supported runner labels](https://docs.github.com/en/actions/reference/runners/github-hosted-runners),
 not invented floating Intel-macOS or ARM-Linux aliases.
 
-The validation job runs `check:plugins`, then
-`npm exec --no -- tsx scripts/package-plugins.ts` to recheck and stage archives
-using the already-built plugin entrypoints. Standalone `package:plugins` still
-builds its own entrypoints first. The job transfers the verified
-`.plugin-artifacts/*.tgz` files as the dedicated
-`plugin-release-assets` workflow artifact. Platform builds never take those
-archives as installer inputs. The publish job downloads them into ignored
-staging, rechecks the exact filenames, sizes, SHA-256 digests, and catalog URLs
-against the release tag, and copies those exact bytes into the upload set
-without rebuilding them. It publishes the plugin assets together with Linux
-AppImage, Debian, and RPM packages, macOS Apple Silicon and Intel disk images,
-Windows MSI and NSIS installers, and generated release notes. Installer smoke
-checks continue to reject embedded plugin `.tgz` files.
+The validation job runs `npm run fetch:plugins` before the tests, verifying every
+catalog archive's size, SHA-256 digest, manifest, and guide at its plugin
+repository release, then runs `check:plugins`. Denote releases do not rehost
+plugin archives: the publish job uploads Linux AppImage, Debian, and RPM
+packages, macOS Apple Silicon and Intel disk images, Windows MSI and NSIS
+installers, and generated release notes. Installer smoke checks continue to
+reject embedded plugin `.tgz` files.
 
 If a release run fails, run the current **Release** workflow from `main` and
 provide the existing tag. Incomplete draft releases are replaced automatically
 after every platform bundle succeeds, including duplicates left by older failed
 runs. Restore a deleted tag at its original release commit before retrying.
 
-An HTTP 404 for every plugin can mean the release has not been published, even
-when the source archives and their hashes are correct. Check the Release run's
-validation job before changing catalog pins. A retry of the same tag uses the
-same source commit: a code or test fix must land on `main` and be included in a
-new release tag. Do not move an existing tag, replace plugin bytes, or publish
-an incomplete release just to make its plugin URLs resolve.
+A plugin download failure in validation means a catalog URL no longer serves
+the recorded bytes from its plugin repository release. Re-upload that release
+asset with its exact recorded bytes, or adopt a different published version
+with `update:plugin` on `main` and include it in a new release tag; never
+replace bytes at an existing plugin version. A retry of the same tag uses the same source commit: a code or test fix
+must land on `main` and be included in a new release tag. Do not move an
+existing tag or publish an incomplete release.
 
 To abandon a failed release, revert the tagged release commit, push the revert,
 then remove the tag locally and remotely:
@@ -2646,8 +2429,8 @@ so releases and installed apps keep working across the move:
 - Keep `repository` in `release-assets.json` and the `src-tauri/updater.json`
   endpoint at `mbianchidev/denote` while apps older than the first release
   containing this change remain supported. `latest.json` asset URLs come from
-  that repository, and the release workflow requires the plugin catalog URLs
-  written by `scripts/release.mjs` to use the same repository.
+  that repository. Plugin catalog URLs point at the plugins' own denote-io
+  repositories and do not depend on this repository's owner.
 - Never create a new repository named `mbianchidev/denote`. It would replace
   GitHub's redirects and break every installed app and link that uses the old
   path.

@@ -183,7 +183,6 @@ Denote uses Tauri 2, React, TypeScript, and a Rust native core. Install:
 ```bash
 git clone https://github.com/mbianchidev/denote.git
 cd denote
-node scripts/preinstall-validate-plugins.mjs
 npm ci --ignore-scripts
 npm run prepare:pdf-assets
 npm run prepare:bundled-tools

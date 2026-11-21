@@ -23,8 +23,15 @@ const PLUGIN_CATEGORIES: &[&str] = &[
     "security-privacy",
     "other",
 ];
+// Versions published before the plugins moved to denote-io stay trusted, so
+// previously installed plugins keep validating.
 const RELEASE_ARTIFACT_PREFIX: &str = "https://github.com/mbianchidev/denote/releases/download/";
 const RAW_ARTIFACT_PREFIX: &str = "https://raw.githubusercontent.com/mbianchidev/denote/";
+const DENOTE_REPOSITORIES: &[&str] = &[
+    "https://github.com/mbianchidev/denote",
+    "https://github.com/denote-io/denote",
+];
+const PLUGIN_REPOSITORY_PREFIX: &str = "https://github.com/denote-io/denote-";
 
 pub(crate) fn validate_catalog(catalog: &[PluginCatalogEntry]) -> AppResult<()> {
     let mut ids = HashSet::new();
@@ -46,7 +53,7 @@ pub(crate) fn validate_catalog(catalog: &[PluginCatalogEntry]) -> AppResult<()> 
                 .all(|byte| byte.is_ascii_hexdigit())
             || !trusted_artifact_url(entry)
             || entry.manifest.publisher.name != "Denote"
-            || entry.manifest.repository != "https://github.com/mbianchidev/denote"
+            || !trusted_repository(entry)
         {
             return Err(AppError::Plugin(format!(
                 "Invalid trusted provenance for plugin {id}"
@@ -285,8 +292,36 @@ fn validate_catalog_entry(entry: &PluginCatalogEntry) -> AppResult<()> {
     validate_settings(&entry.manifest, default_settings(&entry.manifest)).map(|_| ())
 }
 
+/// Each trusted plugin publishes from its own repository, such as
+/// `denote.kanban` from `https://github.com/denote-io/denote-kanban`.
+fn plugin_repository(id: &str) -> Option<String> {
+    let name = id.strip_prefix("denote.")?;
+    (!name.is_empty()
+        && !name.starts_with('-')
+        && !name.ends_with('-')
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'))
+    .then(|| format!("{PLUGIN_REPOSITORY_PREFIX}{name}"))
+}
+
+fn trusted_repository(entry: &PluginCatalogEntry) -> bool {
+    DENOTE_REPOSITORIES.contains(&entry.manifest.repository.as_str())
+        || plugin_repository(&entry.manifest.id)
+            .is_some_and(|repository| entry.manifest.repository == repository)
+}
+
 fn trusted_artifact_url(entry: &PluginCatalogEntry) -> bool {
     let artifact_name = format!("{}-{}.tgz", entry.manifest.id, entry.manifest.version);
+    if plugin_repository(&entry.manifest.id).is_some_and(|repository| {
+        entry.artifact.url
+            == format!(
+                "{repository}/releases/download/v{}/{artifact_name}",
+                entry.manifest.version
+            )
+    }) {
+        return true;
+    }
     let raw_url = format!(
         "{RAW_ARTIFACT_PREFIX}{}/plugin-artifacts/{artifact_name}",
         entry.provenance.source_commit

@@ -3,16 +3,13 @@ import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { parsePluginManifest } from "@denote/plugin-sdk";
 import type { FileNode, NoteStats, PluginView, WorkspaceSnapshot } from "../src/types";
 import { isNoteCommentsSnapshot, type NoteCommentsSnapshot } from "../src/lib/noteComments";
-import stylingManifest from "../plugins/text-styling/plugin.json";
-import commentsManifest from "../plugins/note-comments/plugin.json";
-import slidesManifest from "../plugins/presentations/plugin.json";
-import speechManifest from "../plugins/speech/plugin.json";
-import credentialsManifest from "../plugins/credential-store/plugin.json";
-import stylingCode from "../plugins/text-styling/dist/index.js?raw";
-import commentsCode from "../plugins/note-comments/dist/index.js?raw";
-import slidesCode from "../plugins/presentations/dist/index.js?raw";
-import speechCode from "../plugins/speech/dist/index.js?raw";
-import credentialsCode from "../plugins/credential-store/dist/index.js?raw";
+import catalogJson from "../plugins/catalog.json";
+// Released bundles staged by `npm run fetch:plugins`.
+import stylingCode from "../.plugin-artifacts/denote.text-styling/dist/index.js?raw";
+import commentsCode from "../.plugin-artifacts/denote.note-comments/dist/index.js?raw";
+import slidesCode from "../.plugin-artifacts/denote.presentations/dist/index.js?raw";
+import speechCode from "../.plugin-artifacts/denote.speech/dist/index.js?raw";
+import credentialsCode from "../.plugin-artifacts/denote.credential-store/dist/index.js?raw";
 
 interface AuthoringFixtureState {
   documents: Record<string, string>;
@@ -69,6 +66,16 @@ if (navigator.mediaDevices?.getUserMedia) {
     return stream;
   };
 }
+function catalogManifest(id: string): unknown {
+  const entry = catalogJson.find((candidate) => candidate.manifest.id === id);
+  if (!entry) throw new Error(`Missing catalog entry: ${id}`);
+  return entry.manifest;
+}
+const stylingManifest = parsePluginManifest(catalogManifest("denote.text-styling"));
+const commentsManifest = parsePluginManifest(catalogManifest("denote.note-comments"));
+const slidesManifest = parsePluginManifest(catalogManifest("denote.presentations"));
+const speechManifest = parsePluginManifest(catalogManifest("denote.speech"));
+const credentialsManifest = parsePluginManifest(catalogManifest("denote.credential-store"));
 const NativeWorker = window.Worker;
 window.Worker = class extends NativeWorker {
   terminate() { state.terminatedWorkers++; super.terminate(); }
@@ -77,8 +84,7 @@ const sources = new Map([
   [stylingManifest.id, stylingCode], [commentsManifest.id, commentsCode], [slidesManifest.id, slidesCode],
   [speechManifest.id, speechCode], [credentialsManifest.id, credentialsCode],
 ]);
-const plugins: PluginView[] = [stylingManifest, commentsManifest, slidesManifest, speechManifest, credentialsManifest].map((value) => {
-  const manifest = parsePluginManifest(value);
+const plugins: PluginView[] = [stylingManifest, commentsManifest, slidesManifest, speechManifest, credentialsManifest].map((manifest) => {
   return {
     catalog: { manifest, artifact: {
       url: `https://github.com/mbianchidev/denote/releases/download/v0.11.0/${manifest.id}-${manifest.version}.tgz`,

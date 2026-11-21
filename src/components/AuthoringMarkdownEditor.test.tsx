@@ -2,18 +2,24 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { $getRoot, $getSelection, $isRangeSelection, type LexicalEditor, UNDO_COMMAND } from "lexical";
 import { useState } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { PluginAuthoringRequest, PluginAuthoringResult } from "@denote/plugin-sdk";
 import { DEFAULT_EDITOR_DISPLAY_SETTINGS } from "../lib/editorDisplay";
 import { AdvancedAuthoring } from "./AdvancedAuthoring";
 import { MarkdownEditor } from "./MarkdownEditor";
-import { styleRequest } from "../../plugins/text-styling/src/styling";
+import { activateReleasedPlugin, type ActivatedReleasedPlugin } from "../test/releasedPlugins";
 
 const original = "---\ncustom: keep\n---\n\n# Synthetic note\n\nColor me.\n\nKeep **this** and [link](https://example.test/).  \n";
 const provider = { pluginId: "denote.text-styling", id: "denote.text-styling.styles", title: "Styles", feature: "text-styling" as const };
+let textStyling: ActivatedReleasedPlugin;
 const request = async (_plugin: string, _id: string, request: PluginAuthoringRequest): Promise<PluginAuthoringResult> => {
-  return styleRequest(request);
+  return textStyling.registration("authoring").request(request);
 };
+
+beforeAll(async () => {
+  textStyling = await activateReleasedPlugin("denote.text-styling");
+}, 120_000);
+afterAll(() => textStyling?.dispose());
 
 function Harness({ initial = original, changed, audio = false }: { initial?: string; changed: (source: string) => void; audio?: boolean }) {
   const [source, setSource] = useState(initial);

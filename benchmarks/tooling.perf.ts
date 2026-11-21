@@ -1,11 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
 import { build } from "vite";
-import { buildPlugin, pluginDirectories } from "../scripts/plugin-build";
+import { stageReleasedPlugins } from "../src/test/releasedPlugins";
 
 let fixture = "";
 let errors: string[] = [];
 test.beforeAll(async () => {
-  for (const id of ["denote.linter", "denote.compiler", "denote.terminal"]) await buildPlugin(pluginDirectories(id)[0]);
+  await stageReleasedPlugins(["denote.linter", "denote.compiler", "denote.terminal"]);
   const result = await build({ configFile: false, logLevel: "error",
     build: { write: false, lib: { entry: "benchmarks/toolingFixture.ts", name: "syntheticToolingFixture", formats: ["iife"] } } });
   const bundles = Array.isArray(result) ? result : [result];

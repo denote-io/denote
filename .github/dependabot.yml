@@ -2,13 +2,9 @@ version: 2
 updates:
   - package-ecosystem: npm
     directory: /
-    exclude-paths:
-      - "plugins/**"
     ignore:
       # Runtime updates require the coordinated Windows compatibility gate.
       - dependency-name: "@tauri-apps/*"
-      # Shared with immutable plugin archives; update with new plugin releases.
-      - dependency-name: "mdast-util-from-markdown"
     schedule:
       interval: weekly
     groups:

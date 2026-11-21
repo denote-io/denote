@@ -567,9 +567,12 @@ separate marketing system. A file-path spine leads into the real application
 preview; graphite/paper surfaces, moss actions, one-pixel rules, tight corners,
 and the asymmetric mark carry the desktop identity. Platform downloads remain
 visible together, with recommendation treated as supplementary text rather than
-hiding alternatives. The plugin ledger lists every user-facing catalog plugin with an icon, guide
-link, description, and current version, grouped under the same category labels
-as Settings → Plugins. Icons are website-owned Lucide outlines in the moss
+hiding alternatives. The plugin ledger lists every user-facing catalog plugin
+with an icon, a name linking to its guide at the released tag, description, a
+small monospace link to its repository labeled like `denote-io/denote-kanban`,
+and current version, grouped under the same category labels as Settings →
+Plugins. The list comes only from `plugins/catalog.json`. Icons are
+website-owned Lucide outlines in `website/assets/plugins/<id>.svg`, in the moss
 accent, reusing the activity-rail icon where the app has one, because package
 icons are not a consistent visual set.
 

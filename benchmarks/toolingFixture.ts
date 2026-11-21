@@ -3,12 +3,11 @@ import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { parsePluginManifest } from "@denote/plugin-sdk";
 import type { PluginView, WorkspaceSnapshot, NoteStats } from "../src/types";
 import type { ToolConfiguration, ToolContext } from "../src/lib/projectTools";
-import linterManifest from "../plugins/linter/plugin.json";
-import compilerManifest from "../plugins/compiler/plugin.json";
-import terminalManifest from "../plugins/terminal/plugin.json";
-import linterCode from "../plugins/linter/dist/index.js?raw";
-import compilerCode from "../plugins/compiler/dist/index.js?raw";
-import terminalCode from "../plugins/terminal/dist/index.js?raw";
+import catalogJson from "../plugins/catalog.json";
+// Released bundles staged by `npm run fetch:plugins`.
+import linterCode from "../.plugin-artifacts/denote.linter/dist/index.js?raw";
+import compilerCode from "../.plugin-artifacts/denote.compiler/dist/index.js?raw";
+import terminalCode from "../.plugin-artifacts/denote.terminal/dist/index.js?raw";
 
 interface ToolingFixtureState {
   documents: Record<string, string>;
@@ -42,11 +41,18 @@ function hash(path: string): string {
   if (!Object.prototype.hasOwnProperty.call(state.documents, path)) throw new Error("Unknown synthetic source.");
   return String(versions.get(path) ?? 1).padStart(64, "0");
 }
+function catalogManifest(id: string): unknown {
+  const entry = catalogJson.find((candidate) => candidate.manifest.id === id);
+  if (!entry) throw new Error(`Missing catalog entry: ${id}`);
+  return entry.manifest;
+}
+const linterManifest = parsePluginManifest(catalogManifest("denote.linter"));
+const compilerManifest = parsePluginManifest(catalogManifest("denote.compiler"));
+const terminalManifest = parsePluginManifest(catalogManifest("denote.terminal"));
 const sources = new Map([
   [linterManifest.id, linterCode], [compilerManifest.id, compilerCode], [terminalManifest.id, terminalCode],
 ]);
-const plugins: PluginView[] = [linterManifest, compilerManifest, terminalManifest].map((value) => {
-  const manifest = parsePluginManifest(value);
+const plugins: PluginView[] = [linterManifest, compilerManifest, terminalManifest].map((manifest) => {
   return { catalog: { manifest, artifact: { url: `https://github.com/mbianchidev/denote/releases/download/v0.13.0/${manifest.id}-${manifest.version}.tgz`,
     sizeBytes: 100, sha256: "a".repeat(64) }, provenance: { publisherId: "denote", sourceCommit: "a".repeat(40), trusted: true }, guide: "# Synthetic guide" },
     enabled: true, status: "enabled", error: null, approvedPermissions: manifest.permissions,

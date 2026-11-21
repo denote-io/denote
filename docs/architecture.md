@@ -382,19 +382,21 @@ path metadata.
 
 ## Plugin boundary
 
-Plugin implementations live under `plugins/<name>/`, including `plugins/git/`
-and `plugins/reference/`, separate from the editor and from every other plugin.
-Each package owns its implementation, manifest, guide, tests, and repository-only
-release ledger. Shared discovery metadata lives in `plugins/catalog.json` and
-`plugins/bundles.json`. The public, versioned contract lives in the
+Plugin implementations live in their own repositories, `denote-io/denote-<name>`
+for plugin ID `denote.<name>`, separate from the editor and from every other
+plugin. Each repository owns its implementation, manifest, guide, tests,
+releases, and release history. This repository keeps only the shared discovery
+metadata in `plugins/catalog.json` and `plugins/bundles.json`. The public,
+versioned contract lives in the
 [plugin SDK](https://github.com/denote-io/denote-plugin-sdk). `src/plugins/usePlugins.ts` is the
 renderer-side orchestrator that drives the lifecycle against that contract;
 `src/plugins/workerRuntime.ts` (`PluginWorkerRuntime`) and
 `src/plugins/pluginWorker.ts` provide the typed, isolated runtime each enabled
 plugin executes in. The native `PluginManager` is the installer, state, and
 security boundary: it downloads, verifies, installs, persists state, and
-recovers transactions. CI rejects editor imports of plugin implementations,
-plugin imports of editor/Tauri internals, and direct plugin-to-plugin
+recovers transactions. Denote's `check:plugins` rejects editor imports of plugin
+implementation packages; each plugin repository's `denote-plugin check` rejects
+plugin imports of editor/Tauri internals and direct plugin-to-plugin
 dependencies.
 
 Startup safe mode is an immutable native manager policy captured from
@@ -409,27 +411,28 @@ execution. Safe mode retains persisted enablement rather than disabling every
 package as a side effect of launch.
 
 The plugin catalog accepts metadata, not executable modules. Catalog display is
-therefore safe before enablement and cannot run plugin code. Release preparation
-rewrites each current catalog URL to the matching versioned GitHub Release asset,
-while the source commit, byte count, and SHA-256 digest remain independently
-pinned. The downloader follows only bounded HTTPS redirects across approved
-GitHub asset hosts. Installers contain the catalog but no plugin archive.
+therefore safe before enablement and cannot run plugin code. Each catalog URL is
+the plugin's own release asset,
+`https://github.com/denote-io/denote-<name>/releases/download/v<version>/<plugin-id>-<version>.tgz`,
+with an independently pinned byte count, SHA-256 digest, and source commit. The
+native validator also accepts the earlier `mbianchidev/denote` release and
+commit-addressed raw URLs so previously installed plugins keep validating.
+Update detection keys on the artifact digest and permissions, not the URL. The
+downloader follows only bounded HTTPS redirects across approved GitHub asset
+hosts. Installers contain the catalog but no plugin archive.
 
-Plugin archives are never tracked in the current repository tree. Each
-`plugins/<name>/releases.json` ledger records immutable versions, source commits,
-origin URLs, sizes, and SHA-256 digests; it is not embedded in the application.
-Historical entries keep verified commit-addressed archive URLs, so existing
-bytes remain available without copying old Git blobs into new commits. Downloads
-use only the exact ledger origin and fail closed if it is unavailable or invalid,
-without a fallback to another source. New entries use deterministic builds of
-committed source and verified build inputs.
-Packaging writes only ignored `.plugin-artifacts/` staging output.
-Release validation verifies archive content against source as well as safe
-entries, size, and digest, then transfers those bytes in a dedicated workflow
-artifact. Publishing rechecks the complete filename set, catalog release URLs,
-sizes, and hashes before uploading the same bytes beside the desktop installers.
-It neither rebuilds nor reads archives from Git. Rehosting changes only current
-catalog URLs, not ledger origins or archive provenance.
+Plugin archives are never tracked in Git. Plugin repositories build them
+reproducibly and publish them as immutable release assets; each repository's
+`releases.json` keeps the history of versions published from
+`mbianchidev/denote`. `npm run update:plugin` adopts a published release by
+reading the archive's own manifest and guide and recording its URL, size,
+SHA-256 digest, and release tag commit. `provenance.sourceCommit` is the
+`mbianchidev/denote` commit that built the versions current when plugins moved
+to their own repositories, and the plugin repository's release tag commit for
+later versions. `npm run fetch:plugins` verifies every catalog archive and
+writes only ignored `.plugin-artifacts/` staging output for tests. Denote
+releases verify the published downloads but neither rehost plugin archives nor
+rewrite catalog URLs.
 
 Debug builds have a separate local-development adapter, compiled out of release
 builds. It is available only when Tauri runs with the
@@ -626,7 +629,7 @@ schemes, and embedded passwords are all rejected before a process starts.
 The trusted transport, automatic commits, clone, GitHub authentication, askpass,
 and executable resolution share the native `src-tauri/src/plugins/git/`
 namespace. They remain host-owned permission and filesystem boundaries, not
-code shipped in the downloadable `plugins/git/` package.
+code shipped in the downloadable `denote.git` package.
 `restore-from-upstream` maps to one fixed `git restore --source=@{upstream}
 --staged --worktree -- <paths>` template. The plugin supplies only bounded
 repository-relative tracked paths. The host confirmation names the selected
@@ -1027,8 +1030,8 @@ not part of this bounded process API. Separate additive `code-intelligence`,
 
 ### Code intelligence
 
-`plugins/code-intelligence/` owns language/DAP adaptation in its isolated worker.
-The SDK defines typed, bounded requests/results shared by all approved code
+The downloadable `denote.code-intelligence` package owns language/DAP
+adaptation in its isolated worker. The SDK defines typed, bounded requests/results shared by all approved code
 providers. The host owns CodeMirror completion, safe Markdown hover, signature
 help, diagnostics, explicit version-checked formatting, searchable navigation,
 and accessible debugger controls. No package implementation is imported by the
@@ -1296,8 +1299,9 @@ The host sends no note body, absolute path, encryption key, DOM, or
 write service. Metadata is bounded to 8 KiB per note and 2 MiB of document data
 overall. Filenames remain discoverable when content indexing is incomplete.
 
-`plugins/calendar/` owns configurable deterministic filename mapping and the
-strict YAML 1.2 date parser. Ordinary notes need no metadata; configured daily
+The downloadable `denote.calendar` package owns configurable deterministic
+filename mapping and the strict YAML 1.2 date parser. Ordinary notes need no
+metadata; configured daily
 filenames take precedence over an optional top-level date-only scalar.
 `type: daily` marks daily notes independently of their path, while configured
 filenames identify legacy daily notes. New files include the type and date
@@ -1567,8 +1571,9 @@ The additive API version 1 `time-tracking` contract lives in
 `src/timeTracking.ts` of the plugin SDK. A separately downloaded worker
 registers one typed request handler; it receives only an opaque vault scope,
 host-sampled continuous time, and explicit note-metadata/timer operations.
-`plugins/time-tracking/src/timeTracking.ts` owns the bounded, serialized,
-versioned state machine and auditable corrections in plugin-scoped storage.
+The `denote.time-tracking` package's `src/timeTracking.ts` owns the bounded,
+serialized, versioned state machine and auditable corrections in plugin-scoped
+storage.
 One running or paused session spans vault switches without revealing foreign
 note metadata. No implementation is bundled with the desktop application.
 
@@ -2109,31 +2114,12 @@ or delete a valid installed version. The latest package substitutes for it only
 after **Review and update** or **Update all** completes. Disabled packages,
 tampered packages, incompatible installed versions, and explicitly revoked
 installed versions are still removed during recovery.
-The packaging tool also enforces catalog independence: historical artifacts are
-downloaded from their immutable ledger origins and compared with current package
-content; new versions are deterministically rebuilt and compared with their
-committed source and build inputs. Both paths verify exact package content and
-retain the recorded byte identity and provenance. Packaging never bumps versions
-or edits metadata. A targeted pin changes only one plugin's catalog entry and
-release ledger, rejects replacement of an existing version, and publishes
-nothing. It verifies committed plugin source, SDK, build tooling, and lockfile
-inputs before building and again after packaging. Catalog
-`provenance.sourceCommit` and ledger `sourceCommit` identify source provenance,
-not an archive-bearing commit, so no binary Git object is required.
-New source entries record `sourcePath`, the plugin directory at that commit.
-Source verification uses this immutable path independently of the package's
-current location, preserving provenance through later directory moves.
-Pinning atomically writes the ledger before atomically replacing the
-catalog; an interrupted catalog write leaves a prepared immutable version that
-an exact retry can finish. Its exclusive cross-process PID lock lives at
-`.plugin-artifacts/pin.lock`. A crashed pin leaves the lock behind and later pins
-refuse rather than stealing it; recovery requires confirming no pin process is
-running, removing only that exact lock file, and retrying the same pin.
-CI rejects archive files in the Git index and archive
-additions anywhere in the proposed commit range while permitting their immutable
-history. Against a full-SHA base, it also requires existing ledger entries to
-remain unchanged and same-version catalog size, digest, and source SHA to stay
-fixed; only new ledger versions or rehosted catalog URLs may be added.
+Catalog updates are independent per plugin. `npm run update:plugin` changes only
+one plugin's catalog entry, atomically, refuses different bytes for a version
+already in the catalog, and never bumps a version or publishes anything. Each
+plugin repository's CI rebuilds its published version and compares it byte for
+byte with the release asset. Catalog `provenance.sourceCommit` identifies source
+provenance, not an archive-bearing commit, so no binary Git object is required.
 
 Deleted entries move to `.denote/trash` inside the vault. The sidebar restore
 action returns them to their original path, choosing a non-conflicting restored

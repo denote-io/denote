@@ -1,14 +1,18 @@
 # Plugin ecosystem
 
-Denote keeps optional capabilities outside the core application. Plugin source
-lives in the monorepo under `plugins/<name>/`, but the desktop
-application must not bundle or execute those implementations. It can load
-catalog metadata before enablement; executable packages are downloaded,
+Denote keeps optional capabilities outside the core application. Each plugin is
+developed, tested, versioned, and released in its own repository: plugin ID
+`denote.<name>` lives in `denote-io/denote-<name>`, such as
+[denote-io/denote-kanban](https://github.com/denote-io/denote-kanban). The
+desktop application must not bundle or execute those implementations. It can
+load catalog metadata before enablement; executable packages are downloaded,
 verified, installed, and loaded only after explicit user approval.
 
 The independent public contract lives in the
 [plugin SDK](https://github.com/denote-io/denote-plugin-sdk)
-(`@denote/plugin-sdk`), which Denote installs from its release tag. The renderer's
+(`@denote/plugin-sdk`), which Denote installs from its release tag. The SDK
+also provides the `denote-plugin` command that plugin repositories use to
+build, check, package, and develop plugins. The renderer's
 `src/plugins/usePlugins.ts` hook orchestrates the plugin lifecycle (catalog
 refresh, transactional enable/disable, startup restore, shutdown) against that
 contract; `src/plugins/workerRuntime.ts` (`PluginWorkerRuntime`) hosts each
@@ -16,14 +20,17 @@ enabled plugin in an isolated worker (`src/plugins/pluginWorker.ts`) and speaks
 only typed messages to it. The native `PluginManager` in `src-tauri` is the
 security boundary: it owns installation, verification, state persistence, and
 transaction recovery. Plugins must not import editor internals or another
-plugin. The Git package is `plugins/git/` and the contract example is
-`plugins/reference/`. Shared discovery metadata lives in `plugins/catalog.json`
-and `plugins/bundles.json`; each plugin owns its manifest, guide, tests, and
-release ledger.
+plugin. The Git plugin lives in
+[denote-io/denote-git](https://github.com/denote-io/denote-git) and the
+contract example in
+[denote-io/denote-reference](https://github.com/denote-io/denote-reference).
+This repository keeps only the shared discovery metadata in
+`plugins/catalog.json` and `plugins/bundles.json`; each plugin repository owns
+its manifest, guide, tests, releases, and release history.
 
 ## Package contract
 
-Every plugin contains:
+Every plugin repository contains:
 
 - `plugin.json` with a namespaced ID, semantic version, publisher, license,
   category, Denote/API compatibility, permissions, package paths, optional
@@ -35,22 +42,24 @@ Every plugin contains:
 - an implementation under `src/` that imports only the plugin SDK and its own
   declared third-party dependencies;
 - synthetic tests under `tests/`, separate from packaged source;
-- a repository-only `releases.json` ledger once a version is pinned, recording
-  immutable versions, source commits, origin URLs, sizes, and SHA-256 digests.
-  New source entries also record `sourcePath`, the plugin directory at the
-  pinned commit, independently of its current directory.
-  The ledger is not included in executable archives or embedded in Denote.
+- CI and a manual **Release** workflow that publishes `v<version>` with the
+  asset `<plugin-id>-<version>.tgz`;
+- for plugins first published from `mbianchidev/denote`, a `releases.json`
+  history of those versions with their source commits, original asset URLs,
+  sizes, and SHA-256 digests. It is not included in executable archives or
+  embedded in Denote.
 
-Run `npm run check:plugins` to validate manifests, required documentation,
-package layout, declared runtime dependencies, type safety, import boundaries,
-and the real `dist/` entrypoint produced for each package. The reference package
-at `plugins/reference/` exercises this contract without adding a
-production feature.
+In a plugin repository, `denote-plugin check` validates the manifest, required
+guide sections, package metadata, and import boundaries; `--artifacts` also
+requires each built `dist/` entrypoint to be self-contained without runtime
+imports. In Denote, `npm run check:plugins` validates the embedded catalog,
+bundles, and editor import boundary. The reference plugin exercises this
+contract without adding a production feature.
 
 ## What self-contained means
 
 A plugin's downloadable implementation, assets, manifest, guide, tests, package
-metadata, and release ledger are self-contained in `plugins/<name>/`. Shared
+metadata, and release history are self-contained in its own repository. Shared
 typed contracts stay in the plugin SDK.
 
 Host capability adapters are intentionally not plugin implementation. Generic
@@ -101,9 +110,9 @@ content. Disablement terminates the worker before removing package code, its
 per-plugin cached archive, staging content, and atomic-removal backups.
 
 Development builds add one explicit local source without changing this
-production downloader. `npm run dev:plugin -- <id>` builds and watches a single
-plugin into an ignored `.plugin-dev/<id>.tgz`. The isolated Denote Development
-app can select that archive in Settings. Native code reads and hashes the bytes,
+production downloader. `npm run dev` in a plugin repository builds and watches
+that plugin into an ignored `.plugin-dev/<plugin-id>.tgz`. The isolated Denote
+Development app can select that archive in Settings. Native code reads and hashes the bytes,
 constructs an untrusted process-local entry, and feeds them through the same
 validation, extraction, permission approval, worker activation, rollback, and
 disable cleanup. Release builds do not compile the local adapter and never show
@@ -390,8 +399,10 @@ results. Project/vault changes and disable/crash/update/shutdown cancel requests
 and clean up child groups/connections before worker teardown completes.
 
 The first implementation is the separately downloadable
-`plugins/code-intelligence/` package. Its guide documents rust-analyzer, gopls,
-python-lsp-server, Eclipse JDT LS, clangd, TypeScript tooling, and maintained
+`denote.code-intelligence` package from
+[denote-io/denote-code-intelligence](https://github.com/denote-io/denote-code-intelligence).
+Its guide documents rust-analyzer, gopls, python-lsp-server, Eclipse JDT LS,
+clangd, TypeScript tooling, and maintained
 optional DAP adapters.
 
 Content-oriented capabilities remain unavailable while an encrypted vault is
@@ -724,8 +735,10 @@ sleep and ignore wall-clock adjustments. A per-plugin hashed boot identity
 allows recovery across ordinary app restarts; a changed boot pauses at the
 last checkpoint instead of substituting wall-clock duration.
 
-`plugins/time-tracking/` owns the session state machine and persistence. Its
-single versioned plugin-storage value enforces one running or paused session
+The `denote.time-tracking` package from
+[denote-io/denote-time-tracking](https://github.com/denote-io/denote-time-tracking)
+owns the session state machine and persistence. Its single versioned
+plugin-storage value enforces one running or paused session
 across vaults. A query for another vault returns no foreign note metadata.
 Corrections require a matching revision, a reason, and a valid stopped interval;
 prior values remain immutable. Storage reserves room for stop/recovery writes.
@@ -768,8 +781,8 @@ unlocked vault. A manifest cannot combine `clocks` with `structured-viewer`,
 combinations. The host never grants DOM access, a worker timer, or a direct
 notification service.
 
-`plugins/time-tracking/src/clocks.ts` owns persistent clock state. Continuous
-duration recovery follows note tracking's same-boot/reboot rules. Civil alarm
+The time tracking repository's `src/clocks.ts` owns persistent clock state.
+Continuous duration recovery follows note tracking's same-boot/reboot rules. Civil alarm
 scheduling uses the SDK helpers also used by Reminders, including earlier-DST
 ambiguity resolution, gap rejection, and daily recurrence that skips gaps.
 Snooze is five minutes from the current instant. Confirmed disablement writes
@@ -960,7 +973,8 @@ Markdown.
 Trusted native Git transport and its automatic-commit, clone, GitHub
 authentication, askpass, and executable-resolution helpers live together in
 `src-tauri/src/plugins/git/`. This is host-owned security code, not part of the
-downloadable `plugins/git/` package.
+downloadable `denote.git` package from
+[denote-io/denote-git](https://github.com/denote-io/denote-git).
 
 The approved `git` permission adds a `git` capability to the user-action
 context. It is privileged, so it exists only inside an explicit command or
@@ -1347,9 +1361,11 @@ outcome where applicable, and no generated message contains note content or
 paths. Standing runs join the same cancellation registry as typed requests, so
 disabling the plugin or closing Denote stops them.
 
-The repository reference plugin is the end-to-end fixture. Its independently
-downloadable archive is a separate GitHub Release asset, staged locally only in
-ignored `.plugin-artifacts/`; only catalog metadata enters the desktop bundle.
+The reference plugin is the end-to-end fixture. Its independently downloadable
+archive is a GitHub Release asset of
+[denote-io/denote-reference](https://github.com/denote-io/denote-reference),
+staged locally by `npm run fetch:plugins` only in ignored `.plugin-artifacts/`;
+only catalog metadata enters the desktop bundle.
 
 `denote.git`, the Git vault versioning plugin, is the first production catalog
 entry and the `git` role candidate in the Code tooling bundle. It requests
@@ -1387,26 +1403,26 @@ reinstalling the plugin.
 
 ## Publication and governance
 
-Source-built archives use normalized tar metadata and a pinned JavaScript gzip
-implementation. They must reproduce the same complete bytes across Node runtimes
-and operating systems; matching only the extracted contents is insufficient.
-Compression changes must not replace a pinned version's digest or size. This
-build-time compressor is not included in the application or plugin runtime.
+`denote-plugin pack` writes normalized tar metadata and uses a pinned JavaScript
+gzip implementation. Archives must reproduce the same complete bytes across Node
+runtimes and operating systems; matching only the extracted contents is
+insufficient. Changing the compiler, compressor, or their settings changes
+archive bytes and requires a new plugin version. This build-time compressor is
+not included in the application or plugin runtime.
 
 The initial catalog is first-party only. A plugin artifact is publishable when:
 
-- its source is contained in one `plugins/<name>/` directory;
+- its source is contained in its own `denote-io/denote-<name>` repository;
 - manifest, guide, package, type, import-boundary, and artifact checks pass;
-- frontend and native tests pass on macOS, Windows, and Linux;
+- the plugin repository's tests and Denote's frontend and native tests pass,
+  the latter on macOS, Windows, and Linux;
 - automated JavaScript and Rust audits report no unresolved high-severity
   vulnerability;
-- its verified archive exactly matches package content and its pinned source;
-- its immutable release ledger records the version, source commit, origin URL,
-  size, and SHA-256, with no archive added to the Git index or proposed commits;
-- its catalog entry pins an immutable repository source commit, byte size, and
-  SHA-256 digest;
-- its release URL names the exact plugin archive under the matching versioned
-  Denote GitHub Release;
+- its archive is built reproducibly from the tagged source by the plugin
+  repository's **Release** workflow and published as `<plugin-id>-<version>.tgz`
+  under its `v<version>` release, with no archive committed to Git;
+- its catalog entry records that release URL, the archive's byte size, SHA-256
+  digest, manifest, and guide, and the source commit;
 - requested permissions are minimal and accurately explained in the guide;
 - accessibility, privacy, failure, disablement, and data-cleanup behavior are
   reviewed by a Denote maintainer.
@@ -1488,8 +1504,9 @@ designed and reviewed.
 
 The version 1 catalog is embedded in each Denote release. New listings,
 available-version metadata, and revocations therefore arrive with an application
-update. Rehosting unchanged bytes under a newer Denote release URL does not mark
-a plugin update available; a changed archive digest or permission set does.
+update. Moving unchanged bytes to another trusted URL, such as from a Denote
+release to the plugin repository release, does not mark a plugin update
+available; a changed archive digest or permission set does.
 **Review and update** or **Update all** downloads the new artifact, repeats
 permission approval, and keeps the installed package as the rollback target
 until the new runtime commits. An opt-in **Automatically update plugins**
@@ -1500,75 +1517,59 @@ adds, removes, or otherwise changes a requested permission is never applied
 automatically; it still requires explicit review through **Update all** or
 that plugin's own **Review and update** action.
 
-Plugin archives must not be committed. Generated release packages live only in
-ignored `.plugin-artifacts/`, and CI's dependency-free
-`check:plugin-archives -- --base <full-sha>` guard rejects archives in the Git
-index and additions anywhere in the proposed commits, even if later deleted.
-The base must be a full commit SHA. It also requires existing release-ledger
-entries to remain unchanged and rejects same-version catalog changes to the
-digest, size, or source SHA. New versions may be appended, and current catalog
-URLs may rehost unchanged bytes. Existing immutable history is allowed; it is
-not rewritten.
+Plugin archives must not be committed to this repository or a plugin
+repository; `.plugin-artifacts/` and `.plugin-dev/` are ignored. Published
+versions are immutable. A plugin repository never republishes different bytes
+at an existing version, its CI checks that the published version still rebuilds
+byte for byte, and neither its tooling nor Denote's bumps a version
+automatically. Authors explicitly bump only the plugin that changed.
 
-Each `releases.json` ledger retains the identity and origin of every pinned
-version. Historical versions use verified immutable commit-addressed raw URLs,
-preserving their size, digest, and source SHA without requiring those archive
-blobs in the current tree. Historical downloads use the single exact ledger URL
-and fail if unavailable or invalid, with no fallback to a catalog URL or another
-source. New versions are deterministically built from
-committed source and verified build inputs. Existing versions never receive
-replacement bytes or provenance. Neither packaging nor pinning bumps a version;
-authors explicitly bump only the plugin that changed.
+The catalog accepts only a plugin's own release asset,
+`https://github.com/denote-io/denote-<name>/releases/download/v<version>/<plugin-id>-<version>.tgz`,
+whose tag matches the manifest version. The native validator also accepts the
+earlier `mbianchidev/denote` release and commit-addressed raw URLs, so
+previously installed plugins keep validating. Downloads follow only bounded
+HTTPS redirects across approved GitHub hosts.
 
-For authoring, `package:plugin -- <id>` builds one archive into ignored staging
-without requiring an uncreated source commit. Commit the source and relevant
-SDK, lockfile, and build inputs first. Then
-`pin:plugin -- <id> --ref <sha> --release <vSEMVER>` verifies committed plugin
-source, SDK, build tooling, and lockfile inputs before building and again after
-packaging, checks the reproducible package and immutable-version constraints, and
-atomically writes the selected release ledger before atomically replacing that
-plugin's catalog entry. An interruption between those writes leaves a prepared
-immutable ledger entry; retrying the exact same pin completes the catalog
-update. Never edit or remove that entry to allow replacement bytes. The release
-argument is the intended Denote release tag. Commit the metadata separately.
-Pinning never uploads an asset or publishes a release.
-Packaging or pinning `denote.git` cannot rewrite `denote.reference` or another
-plugin.
+Catalog `provenance.sourceCommit` identifies the source that built an archive.
+The versions current when plugins moved to their own repositories were
+republished unchanged as plugin repository releases, with the same size,
+SHA-256 digest, manifest, and guide, and keep the `mbianchidev/denote` commit
+that built them. Later versions record the release tag commit in the plugin
+repository. Eighteen of those twenty archives rebuild byte for byte from their
+plugin repositories; Emoji picker 0.1.3 and Mermaid 0.3.0 were built against an
+earlier SDK revision, and their CI exempts only those exact versions. Each plugin
+repository's `releases.json` keeps the history of versions published from
+`mbianchidev/denote`.
 
-`.plugin-artifacts/pin.lock` is an exclusive cross-process PID lock. A crashed
-pin leaves the lock in place, and another invocation refuses rather than stealing
-it. Confirm no pin process is running before removing only the exact lock file,
-then retry the same pin command; retain any prepared ledger entry so that retry
-can finish the catalog update. Catalog `provenance.sourceCommit` and ledger
-`sourceCommit` mean source provenance, never the identity of an archive-bearing
-commit. Pinning requires committed source/build inputs, not a binary Git object.
-New source releases retain their original `sourcePath` (for example,
-`plugins/git`) so verification can still find the pinned source after a later
-package-directory move. Renaming a package does not rewrite its release ledger.
+To publish a version, bump `plugin.json` and `package.json` in the plugin
+repository, merge with CI passing, and run its **Release** workflow. Then run
+`npm run update:plugin -- <plugin-id> <version>` in Denote. It resolves the
+release tag commit, downloads the asset, reads its manifest and guide, and
+atomically rewrites only that plugin's catalog entry with the URL, size,
+SHA-256 digest, and tag commit. It refuses different bytes for a version
+already in the catalog. Updating `denote.git` cannot rewrite `denote.reference`
+or another plugin. Review `plugins/bundles.json`, then run `check:plugins` and
+`check:plugin-downloads`.
 
-`check:plugins` and `package:plugins` are the repository-wide CI/release
-commands. Both verify historical immutable downloads or deterministically
-rebuild new versions, check safe archive entries and exact package content, and
-match the pinned size and SHA-256 without depending on tracked archive blobs.
-`package:plugins` stages every current artifact under
-`.plugin-artifacts/<plugin-id>-<plugin-version>.tgz` without changing catalog
-metadata, ledger records, guides, or provenance.
+`check:plugins` type checks Denote's `scripts/*.ts` and validates the catalog
+offline: the SDK schema, the trusted Denote publisher, a manifest repository of
+`https://github.com/mbianchidev/denote`, `https://github.com/denote-io/denote`,
+or the plugin's own repository, the exact plugin repository release URL, and a
+40-character source commit. It also validates `plugins/bundles.json` and
+rejects a `src/` import of any `@denote/plugin-*` package other than the SDK.
+`check:plugin-downloads` downloads every catalog archive and verifies its size,
+SHA-256 digest, manifest, and guide against the catalog. `fetch:plugins`
+applies the same verification and stages each archive as
+`.plugin-artifacts/<plugin-id>-<version>.tgz`, with its files under
+`.plugin-artifacts/<plugin-id>/`, for tests, benchmarks, and the staged native
+lifecycle gate.
 
-Release preparation rewrites every current catalog URL to
-`https://github.com/mbianchidev/denote/releases/download/<tag>/<plugin-id>-<plugin-version>.tgz`.
-Only current catalog URLs change; source commits, digests, sizes, and ledger
-origins remain fixed. The release validation job runs `check:plugins`, then
-`npm exec --no -- tsx scripts/package-plugins.ts` to recheck and stage archives
-without rebuilding the validated entrypoints. It uploads the verified archives
-as `plugin-release-assets`.
-The publish job downloads this dedicated workflow artifact into ignored staging,
-rechecks its exact filename set, hashes, sizes, and release URLs, then uploads
-those exact bytes beside the desktop installers without rebuilding. Platform
-jobs never consume plugin archives, and installer smoke checks reject any
-embedded plugin `.tgz`.
-After publication it checks the exact public catalog URLs, including on retries
-of an already-published release. A failed release is not a reason to change
-existing plugin versions, checksums, or source pins. There is no downloader
+Denote releases neither rehost plugin archives nor rewrite catalog URLs. The
+release validation job runs `fetch:plugins` before its tests, then
+`check:plugins`. Platform jobs never consume plugin archives, and installer
+smoke checks reject any embedded plugin `.tgz`. A failed release is not a reason
+to change existing plugin versions or checksums. There is no downloader
 fallback to a branch, a different package, or an unverified archive.
 
 Plugins do not receive telemetry APIs by default. Any future telemetry
@@ -1577,8 +1578,8 @@ Denote's global privacy settings, avoid note content and secrets, and remain off
 until the user opts in.
 
 Plugin proposals use `.github/ISSUE_TEMPLATE/plugin.yml`. The host API, SDK,
-catalog, and native installer require maintainer review; each plugin owns its
-manifest, guide, tests, immutable release ledger, migrations, and support
+catalog, and native installer require maintainer review; each plugin repository
+owns its manifest, guide, tests, immutable releases, migrations, and support
 lifecycle.
 
 Curated bundles live in `plugins/bundles.json`. They can reference

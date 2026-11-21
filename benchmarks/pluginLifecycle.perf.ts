@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { build } from "vite";
-import { buildPlugin, pluginDirectories } from "../scripts/plugin-build";
+import { stageReleasedPlugins } from "../src/test/releasedPlugins";
 import catalogJson from "../plugins/catalog.json" with { type: "json" };
 import { THEME_STORAGE_KEY } from "../src/lib/theme";
 import { auditAccessibility } from "./accessibility";
@@ -15,7 +15,7 @@ async function setCardOpen(page: Page, card: Locator, open: boolean): Promise<vo
 }
 
 test.beforeAll(async () => {
-  for (const directory of pluginDirectories()) await buildPlugin(directory);
+  await stageReleasedPlugins();
   const result = await build({
     configFile: false, logLevel: "error",
     build: { write: false, lib: { entry: "benchmarks/pluginLifecycleFixture.ts", name: "syntheticPluginLifecycle", formats: ["iife"] } },
