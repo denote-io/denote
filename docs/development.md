@@ -2415,3 +2415,26 @@ then remove the tag locally and remotely:
 ```bash
 git revert --no-edit v0.1.1 && git push && git tag -d v0.1.1 && git push origin --delete v0.1.1
 ```
+
+### Transfer to denote-io
+
+The repository is moving from `mbianchidev/denote` to `denote-io/denote`.
+GitHub redirects web, Git, API, and release-download URLs from the old path,
+so releases and installed apps keep working across the move:
+
+- The updater, website download buttons, and `scripts/updater-release.mjs`
+  accept exactly `mbianchidev/denote` or `denote-io/denote` and reject any
+  other owner. Apps released before this change accept only
+  `mbianchidev/denote`.
+- Keep `repository` in `release-assets.json` and the `src-tauri/updater.json`
+  endpoint at `mbianchidev/denote` while apps older than the first release
+  containing this change remain supported. `latest.json` asset URLs come from
+  that repository. Plugin catalog URLs point at the plugins' own denote-io
+  repositories and do not depend on this repository's owner.
+- Never create a new repository named `mbianchidev/denote`. It would replace
+  GitHub's redirects and break every installed app and link that uses the old
+  path.
+- GitHub Pages is not redirected. After the move the website is served from
+  `https://denote-io.github.io/denote/`. Run the **Pages** workflow if the new
+  site is not live, then update the `https://mbianchidev.github.io/denote/`
+  links in `README.md` and `docs/index.md`.
