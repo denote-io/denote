@@ -44,33 +44,12 @@ URL-encoded absolute file path, such as
 `denote:///Users/example/Notes/linked%20note.md`; the Vite development server
 alone is not an operating-system scheme handler.
 
-Preview the dependency-free public website from the repository root:
-
-```bash
-npm run test:website
-npm run build:website
-python3 -m http.server 4173 --directory dist/website
-```
-
-Website tests use Node's built-in test runner and synthetic fixtures. Both
-website commands need only Node.js and npm, not a dependency install or the
-desktop toolchain. `npm test` includes these same tests on every CI platform.
-For website-only watch mode, run `node --test --watch website/*.node.mjs`.
-`build:website` renders the **Plugins** section only from `plugins/catalog.json`,
-grouped by the Settings → Plugins categories. Each plugin links to its guide at
-the released tag in its plugin repository and to that repository. It excludes
-only the SDK-only Reference plugin and fails on an unknown category, an
-untrusted plugin ID, or a missing or non-static
-`website/assets/plugins/<id>.svg` icon, so preview the built `dist/website`, not
-the raw `website/index.html`. A new plugin needs that icon:
-copy the matching unmodified icon from the `lucide-static` release that matches
-the locked `lucide-react` version, keeping its license comment, and reuse the
-plugin's activity-rail icon when it has one. `LICENSE-lucide.txt` in that folder
-carries the required notice.
-
-GitHub Pages must use **GitHub Actions** as its source. The Pages workflow tests
-and builds pull requests without installing desktop dependencies, then deploys
-only from `main` or manual dispatch.
+The public website at [denote.synctune.it](https://denote.synctune.it) lives in
+[denote-io/denote.synctune.it](https://github.com/denote-io/denote.synctune.it).
+Its build reads this repository's `plugins/catalog.json` and
+`release-assets.json` from `main` and rebuilds daily, so keep the release
+contract's `downloads` entries compatible with it. After adopting a new plugin,
+add its icon there.
 
 ## Validate changes
 
@@ -80,8 +59,6 @@ npm test
 npm run check:plugins
 npm run verify:bundled-tools
 npm run build
-npm run test:website
-npm run build:website
 cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo check --manifest-path src-tauri/Cargo.toml
@@ -681,8 +658,8 @@ downloads the release asset through the bounded GitHub downloader, reads
 plugin's catalog entry with the asset URL, size, SHA-256 digest, and tag commit
 as `provenance.sourceCommit`. A new plugin ID is appended. It refuses different
 bytes for a version already in the catalog and never bumps a version. Review
-`plugins/bundles.json` for new or changed roles, add the website icon for a new
-plugin, and commit only the metadata; never commit an archive. Adopting a plugin
+`plugins/bundles.json` for new or changed roles, add a new plugin's icon in
+[denote-io/denote.synctune.it](https://github.com/denote-io/denote.synctune.it), and commit only the metadata here; never commit an archive. Adopting a plugin
 release does not bump the application version.
 
 `check:plugins` type checks `scripts/*.ts` and validates offline that every
@@ -2434,7 +2411,8 @@ so releases and installed apps keep working across the move:
 - Never create a new repository named `mbianchidev/denote`. It would replace
   GitHub's redirects and break every installed app and link that uses the old
   path.
-- GitHub Pages is not redirected. After the move the website is served from
-  `https://denote-io.github.io/denote/`. Run the **Pages** workflow if the new
-  site is not live, then update the `https://mbianchidev.github.io/denote/`
-  links in `README.md` and `docs/index.md`.
+- GitHub Pages is not redirected. The website therefore moved to
+  [denote-io/denote.synctune.it](https://github.com/denote-io/denote.synctune.it) at `https://denote.synctune.it`; this repository
+  no longer publishes a Pages site. The website fetches its inputs with Git,
+  trying `denote-io/denote` and then `mbianchidev/denote`, so it needs no
+  change for the move.

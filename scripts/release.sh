@@ -80,8 +80,6 @@ npm run check:plugin-downloads
 npm run prepare:bundled-tools
 npm run verify:bundled-tools
 npm run build
-npm run test:website
-npm run build:website
 cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo check --manifest-path src-tauri/Cargo.toml

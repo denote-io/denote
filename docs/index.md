@@ -1,6 +1,6 @@
 # Denote documentation
 
-- [Denote website](https://mbianchidev.github.io/denote/)
+- [Denote website](https://denote.synctune.it)
 - [Product requirements](product.md)
 - [Design system](design.md)
 - [Architecture](architecture.md)
