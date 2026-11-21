@@ -4,7 +4,6 @@
   "version": "0.14.3",
   "type": "module",
   "workspaces": [
-    "packages/plugin-sdk",
     "plugins/*"
   ],
   "engines": {
@@ -34,8 +33,7 @@
     "test:website": "node --test website/*.node.mjs",
     "test:watch": "vitest",
     "check:plugin-archives": "node scripts/check-plugin-archives.mjs",
-    "check:plugins": "npm run check:plugin-archives && npm run check:plugin-api && tsx scripts/validate-plugins.ts && tsc --noEmit -p plugins/tsconfig.json && npm run build:plugins && tsx scripts/validate-plugins.ts --artifacts && tsx scripts/package-plugins.ts --check",
-    "check:plugin-api": "node scripts/check-plugin-api.mjs",
+    "check:plugins": "npm run check:plugin-archives && tsx scripts/validate-plugins.ts && tsc --noEmit -p plugins/tsconfig.json && npm run build:plugins && tsx scripts/validate-plugins.ts --artifacts && tsx scripts/package-plugins.ts --check",
     "check:plugin-downloads": "node scripts/plugin-downloads.mjs",
     "check:secrets": "gitleaks git --log-opts=HEAD --redact=100 --no-banner",
     "check": "npm run test && npm run check:plugins && npm run build && cargo test --manifest-path src-tauri/Cargo.toml",
@@ -50,6 +48,7 @@
     "@codemirror/lint": "^6.9.8",
     "@codemirror/state": "^6.7.6",
     "@codemirror/view": "^6.43.14",
+    "@denote/plugin-sdk": "github:denote-io/denote-plugin-sdk#v0.1.0",
     "@lexical/hashtag": "0.53.0",
     "@lexical/react": "0.53.0",
     "@lezer/highlight": "^1.2.5",
@@ -98,6 +97,7 @@
     "vitest": "^5.1.0"
   },
   "overrides": {
+    "@denote/plugin-sdk": "$@denote/plugin-sdk",
     "@lexical/hashtag": "$@lexical/hashtag",
     "@lexical/react": "$@lexical/react",
     "@mdxeditor/editor": {

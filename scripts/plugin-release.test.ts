@@ -41,10 +41,8 @@ function fixture() {
   writeFileSync(join(directory, "package.json"), '{"private":true,"version":"1.0.0"}');
   writeFileSync(join(directory, "guide.md"), "# Synthetic guide\n");
   writeFileSync(join(directory, "icon.svg"), "<svg/>");
-  mkdirSync(join(root, "packages/plugin-sdk/src"), { recursive: true });
   mkdirSync(join(root, "scripts"));
   mkdirSync(join(root, "config"));
-  writeFileSync(join(root, "packages/plugin-sdk/src/index.ts"), "export {};\n");
   writeFileSync(join(root, "scripts/plugin-build.ts"), "export {};\n");
   writeFileSync(join(root, "scripts/plugin-archive.ts"), "export {};\n");
   writeFileSync(join(root, "package.json"), '{"private":true}');

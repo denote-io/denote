@@ -5,7 +5,10 @@
 Install the [Tauri v2 prerequisites](https://v2.tauri.app/start/prerequisites/)
 for your operating system, Node.js 26.12.1 (pinned in `.node-version`), and stable
 Rust. CI, Pages, and release jobs use the same Node pin. Other supported Node.js
-versions are declared in `package.json`.
+versions are declared in `package.json`. `npm ci` also needs Git and network
+access to GitHub: the plugin SDK is installed from
+[denote-io/denote-plugin-sdk](https://github.com/denote-io/denote-plugin-sdk)
+at the release tag locked in `package-lock.json`.
 
 ## Run Denote
 
@@ -94,7 +97,6 @@ execution. Checkout credentials are not retained.
 
 ```bash
 npm run check:secrets
-npm run check:plugin-api
 npm run build
 npm exec --no -- playwright test benchmarks/accessibility.perf.ts benchmarks/pluginLifecycle.perf.ts
 npm run package:plugins
@@ -476,9 +478,10 @@ the Denote application.
 
 Each plugin owns its manifest, guide, icon, package metadata, source, tests, and
 repository-only `releases.json` ledger. Shared catalog and bundle metadata live
-in `plugins/catalog.json` and `plugins/bundles.json`. The public contract remains
-in `packages/plugin-sdk`; native Git transport, automatic commits, clone,
-authentication, and executable resolution belong to the trusted host under
+in `plugins/catalog.json` and `plugins/bundles.json`. The public contract is the
+[plugin SDK](https://github.com/denote-io/denote-plugin-sdk), installed from its
+release tag; native Git transport, automatic commits, clone, authentication,
+and executable resolution belong to the trusted host under
 `src-tauri/src/plugins/git/`, never to a downloadable package.
 
 Plugin unit tests belong in `plugins/<name>/tests/`, outside
@@ -572,7 +575,6 @@ For Mermaid changes, run:
 npm audit --audit-level=low --workspaces --include-workspace-root
 npm ls pele dompurify
 npx vitest run \
-  packages/plugin-sdk/src/diagramRenderer.test.ts \
   plugins/mermaid/tests/compatibility.test.ts \
   plugins/mermaid/tests/renderer.test.ts \
   src/plugins/diagramRenderers.test.ts \
@@ -851,8 +853,10 @@ source-built version needs its origin release published before that network
 smoke test can pass. Use `check:plugins` for offline pending-source validation.
 
 An already-pinned plugin builds against the SDK source at its catalog
-`sourceCommit`, keeping later additive host capabilities out of its immutable
-archive. A new or bumped plugin version builds against the current SDK.
+`sourceCommit`, read from the SDK's former `packages/plugin-sdk` path in Git
+history, keeping later additive host capabilities out of its immutable archive.
+A new or bumped plugin version builds against the SDK release locked in
+`package-lock.json`.
 Keep full Git history available when rebuilding pinned artifacts. A plugin that
 needs a newly added SDK function must bump its own version before building.
 
@@ -947,7 +951,6 @@ Run focused coverage with:
 
 ```bash
 npx vitest run \
-  packages/plugin-sdk/src/kanban.test.ts \
   src/plugins/kanbanBoards.test.ts \
   src/lib/editorRouting.test.ts \
   src/plugins/runtimeMessages.test.ts \
@@ -992,7 +995,6 @@ Run focused coverage with:
 
 ```bash
 npx vitest run \
-  packages/plugin-sdk/src/noteGraph.test.ts \
   src/plugins/noteGraphCoordinator.test.ts \
   src/plugins/noteGraphs.test.ts \
   src/plugins/runtimeMessages.test.ts \
@@ -1041,7 +1043,6 @@ the note-statistics row's creation/opened timestamps as file dates.
 
 ```bash
 npx vitest run \
-  packages/plugin-sdk/src/calendar.test.ts \
   plugins/calendar/tests \
   src/lib/calendar.test.ts \
   src/plugins/calendars.test.ts \
@@ -1080,7 +1081,6 @@ focus catch-up, generation guards, native notification dispatch, and teardown.
 
 ```bash
 npx vitest run \
-  packages/plugin-sdk/src/reminders.test.ts \
   plugins/reminders/tests \
   src/plugins/runtimeMessages.test.ts \
   src/plugins/workerRuntime.test.ts \
@@ -1127,7 +1127,6 @@ run a developer's real language/debug configuration.
 
 ```bash
 npx vitest run \
-  packages/plugin-sdk/src/codeIntelligence.test.ts \
   plugins/code-intelligence/tests \
   src/plugins/codeHost.test.ts src/plugins/codeIntelligence.test.ts \
   src/plugins/runtimeMessages.test.ts src/plugins/workerRuntime.test.ts \
@@ -1163,7 +1162,7 @@ unconfigured until explicit executable/argument approval. Native tooling is
 refused for every encrypted vault, including while unlocked.
 
 ```bash
-npm exec --no -- vitest run packages/plugin-sdk/src/tooling.test.ts \
+npm exec --no -- vitest run \
   plugins/linter/tests plugins/compiler/tests plugins/terminal/tests \
   src/plugins/toolingHost.test.ts src/plugins/terminalHost.test.ts \
   src/plugins/toolingRuntime.test.ts src/lib/codeEditor.test.tsx
@@ -1231,8 +1230,7 @@ notification dispatch, gesture-enabled sound, and explicit exports.
 
 ```bash
 npx vitest run \
-  packages/plugin-sdk/src/timeTracking.test.ts packages/plugin-sdk/src/clocks.test.ts \
-  packages/plugin-sdk/src/civilTime.test.ts plugins/time-tracking/tests \
+  plugins/time-tracking/tests \
   src/plugins/runtimeMessages.test.ts src/plugins/workerRuntime.test.ts \
   src/plugins/usePlugins.test.tsx src/plugins/useTimeTracking.test.tsx src/plugins/useClocks.test.tsx \
   src/lib/clockSound.test.ts src/components/ClockPanel.test.tsx src/components/ClockBanners.test.tsx \
@@ -1277,11 +1275,11 @@ remain 0.1.0. Presentations 0.1.1 adds standard `---` slide separators alongside
 Feature branches retain the latest published application version;
 the approved authoring capabilities also gate compatibility in local previews.
 Use `npm run dev:plugin -- <id>` and the isolated development application.
-Their shared additive contract is `packages/plugin-sdk/src/authoring.ts`;
+Their shared additive contract is the SDK's `src/authoring.ts`;
 downloaded implementations stay outside the renderer.
 
 ```bash
-npx vitest run packages/plugin-sdk/src/authoring.test.ts \
+npx vitest run \
   plugins/text-styling/tests plugins/note-comments/tests plugins/presentations/tests \
   src/components/AdvancedAuthoring.test.tsx src/components/AuthoringMarkdownEditor.test.tsx \
   src/components/NoteCommentsPanel.test.tsx src/components/PresentationEditor.test.tsx \
@@ -1341,7 +1339,7 @@ no blocking vulnerabilities; that is not an independent production certification
 or a guarantee against OS-owned plaintext copies.
 
 ```bash
-npx vitest run packages/plugin-sdk/src/sensitiveTools.test.ts \
+npx vitest run \
   plugins/speech/tests plugins/credential-store/tests \
   src/components/CredentialStorePanel.test.tsx src/components/SpeechPanel.test.tsx \
   src/lib/speech.test.ts src/lib/speechCapture.test.ts src/lib/speechShortcut.test.ts src/lib/shortcuts.test.ts \
@@ -1505,9 +1503,11 @@ npx tsc --noEmit -p tsconfig.node.json
 
 ## Dependency update boundaries
 
-Dependabot excludes `plugins/**` and `packages/plugin-sdk/**` from npm version
-updates. These are immutable plugin source inputs, not independently
-upgradable manifests. Cargo backports in `src-tauri/vendor/` are reached only
+Dependabot excludes `plugins/**` from npm version updates. These are immutable
+plugin source inputs, not independently upgradable manifests. The plugin SDK is
+a `github:denote-io/denote-plugin-sdk#v<version>` dependency; update it to a
+new SDK release tag deliberately, because already pinned plugin versions keep
+building against the SDK source at their own source commits. Cargo backports in `src-tauri/vendor/` are reached only
 through `[patch.crates-io]`, never as application workspace members, so
 Dependabot reads their manifests as read-only path sources and skips the
 patched crates. Do not exclude `vendor/**` from the Cargo update: Cargo must
@@ -1906,7 +1906,34 @@ notes and issue/PR trackers, and RustSec for each package. Record the date,
 versions examined, exact evidence links, and whether a compatible upstream
 release can replace the local source. Report a compatible fix explicitly.
 
-Last vendored-library check: **2026-11-20** (afternoon).
+Last vendored-library check: **2026-11-21**.
+Rechecked all seven vendor directories and `[patch.crates-io]` entries before
+migrating the plugins and the plugin SDK to the denote-io organization; the
+vendor root also holds only the test-only workspace `Cargo.toml` and
+`Cargo.lock`. The official sparse-registry records for every vendored crate and
+notify-rust publish nothing since 2026-11-15, so GLib 0.18.5 / 0.22.11, GLib
+macros 0.18.5 / 0.22.11, GTK3 macros 0.18.2 / 0.19.0, URLPattern 0.3.0 / 0.6.0,
+notification 2.4.0 / 2.8.1, opener 2.5.5 / 2.7.3, single-instance
+2.4.5 / 2.5.5, and notify-rust 4.18.2 / 4.19.0 remain the local/current stable
+pairs; notify-rust 4.19.0 remains the only compatible candidate. The
+[single-instance migration](https://github.com/tauri-apps/plugins-workspace/pull/3759),
+[notification zbus 6 update](https://github.com/tauri-apps/plugins-workspace/pull/3792),
+and [migration issue](https://github.com/tauri-apps/plugins-workspace/issues/3716)
+remain open and unreleased; the single-instance request now reports that it
+drops `unixexec:` session-bus support, the opener migration is not yet opened,
+and the plugins' `v2` branch still requires Tauri 2.12. The
+[0.18 branch](https://github.com/gtk-rs/gtk-rs-core/commits/0.18) is still at
+its 2023-12-30 head, and Tauri utils 2.9.3 still requires URLPattern `^0.3`.
+The [Tao GTK 0.19 migration](https://github.com/tauri-apps/tao/pull/1332)
+merged after Tao 0.37.3 and is unreleased; Tao 0.37.3, Wry 0.57.3, and Tauri
+2.12.7 still require GTK 0.18, and the matching
+[Wry change](https://github.com/tauri-apps/wry/pull/1843) and
+[Tauri change](https://github.com/tauri-apps/tauri/pull/16170) are open drafts.
+The [RustSec snapshot](https://github.com/RustSec/advisory-db/tree/f291af9b1cc0d21dfcea1709d6b037963cef262b/crates)
+is unchanged since the previous check. No compatible upstream fix replaces any
+backport.
+
+Earlier vendored-library check: **2026-11-20** (afternoon).
 Rechecked all seven vendor directories and `[patch.crates-io]` entries before
 consolidating the Dependabot npm and Cargo updates. The official sparse-registry
 records for every vendored crate and notify-rust publish nothing after the

@@ -94,8 +94,9 @@ Before changing plugin code or lifecycle behavior, read:
 Plugin packages live in `plugins/git/`, `plugins/reference/`, and other
 `plugins/<name>/` directories, each owning its manifest, guide, tests, and
 repository-only `releases.json` ledger. Shared discovery metadata lives in
-`plugins/catalog.json` and `plugins/bundles.json`; the public SDK stays in
-`packages/plugin-sdk`. Trusted native Git integration belongs in
+`plugins/catalog.json` and `plugins/bundles.json`; the public SDK is
+[denote-io/denote-plugin-sdk](https://github.com/denote-io/denote-plugin-sdk),
+installed from its release tag. Trusted native Git integration belongs in
 `src-tauri/src/plugins/git/`, not in downloadable plugin code.
 
 The application embeds catalog metadata only. Plugin `.tgz` files are separate
