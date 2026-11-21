@@ -386,8 +386,8 @@ Plugin implementations live under `plugins/<name>/`, including `plugins/git/`
 and `plugins/reference/`, separate from the editor and from every other plugin.
 Each package owns its implementation, manifest, guide, tests, and repository-only
 release ledger. Shared discovery metadata lives in `plugins/catalog.json` and
-`plugins/bundles.json`. The public, versioned contract lives in
-`packages/plugin-sdk`. `src/plugins/usePlugins.ts` is the
+`plugins/bundles.json`. The public, versioned contract lives in the
+[plugin SDK](https://github.com/denote-io/denote-plugin-sdk). `src/plugins/usePlugins.ts` is the
 renderer-side orchestrator that drives the lifecycle against that contract;
 `src/plugins/workerRuntime.ts` (`PluginWorkerRuntime`) and
 `src/plugins/pluginWorker.ts` provide the typed, isolated runtime each enabled
@@ -1564,7 +1564,7 @@ claim that process separation defeats a compromised OS.
 ### Time tracking
 
 The additive API version 1 `time-tracking` contract lives in
-`packages/plugin-sdk/src/timeTracking.ts`. A separately downloaded worker
+`src/timeTracking.ts` of the plugin SDK. A separately downloaded worker
 registers one typed request handler; it receives only an opaque vault scope,
 host-sampled continuous time, and explicit note-metadata/timer operations.
 `plugins/time-tracking/src/timeTracking.ts` owns the bounded, serialized,
@@ -1609,7 +1609,7 @@ Native exports validate bounds and recheck permission, vault, and encryption
 state after an asynchronous save dialog before an atomic write. Session
 metadata and exports are outside vault encryption; the UI and guide state this.
 
-The additive `clocks` contract in `packages/plugin-sdk/src/clocks.ts` provides a
+The additive `clocks` contract in the SDK's `src/clocks.ts` provides a
 separate global model without a vault scope or document. Time tracking 0.2.0
 registers both providers; `ClockPanel` composes Timer, Countdowns, Alarm, and the
 existing Notes panel. The plugin-owned `clocks.v1` store contains one stopwatch,

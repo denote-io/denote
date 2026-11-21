@@ -1,6 +1,6 @@
 import { watch, type FSWatcher } from "node:fs";
 import { join } from "node:path";
-import { buildPlugin, pluginDirectories, projectRoot } from "./plugin-build";
+import { buildPlugin, pluginDirectories, projectRoot, sdkRoot } from "./plugin-build";
 import { writePluginArchive } from "./plugin-archive";
 
 const args = process.argv.slice(2);
@@ -87,7 +87,7 @@ if (watchMode) {
       schedule(filename),
     ),
   );
-  const sdkSource = join(projectRoot, "packages", "plugin-sdk", "src");
+  const sdkSource = join(sdkRoot, "src");
   watchers.push(
     watch(sdkSource, { recursive: true }, (_event, filename) =>
       schedule(filename),

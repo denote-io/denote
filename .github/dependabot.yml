@@ -4,7 +4,6 @@ updates:
     directory: /
     exclude-paths:
       - "plugins/**"
-      - "packages/plugin-sdk/**"
     ignore:
       # Runtime updates require the coordinated Windows compatibility gate.
       - dependency-name: "@tauri-apps/*"

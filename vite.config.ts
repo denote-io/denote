@@ -155,6 +155,8 @@ export default defineConfig(async ({ command }) => ({
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
     css: true,
+    // The plugin SDK ships TypeScript source, which Node cannot load from node_modules.
+    server: { deps: { inline: ["@denote/plugin-sdk"] } },
   },
 }));
 

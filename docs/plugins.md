@@ -6,7 +6,9 @@ application must not bundle or execute those implementations. It can load
 catalog metadata before enablement; executable packages are downloaded,
 verified, installed, and loaded only after explicit user approval.
 
-The independent public contract lives in `packages/plugin-sdk`. The renderer's
+The independent public contract lives in the
+[plugin SDK](https://github.com/denote-io/denote-plugin-sdk)
+(`@denote/plugin-sdk`), which Denote installs from its release tag. The renderer's
 `src/plugins/usePlugins.ts` hook orchestrates the plugin lifecycle (catalog
 refresh, transactional enable/disable, startup restore, shutdown) against that
 contract; `src/plugins/workerRuntime.ts` (`PluginWorkerRuntime`) hosts each
@@ -49,7 +51,7 @@ production feature.
 
 A plugin's downloadable implementation, assets, manifest, guide, tests, package
 metadata, and release ledger are self-contained in `plugins/<name>/`. Shared
-typed contracts stay in `packages/plugin-sdk`.
+typed contracts stay in the plugin SDK.
 
 Host capability adapters are intentionally not plugin implementation. Generic
 renderer surfaces such as the emoji picker, Kanban board, and source-control
@@ -330,7 +332,7 @@ handle or turn bounded `process.run` into a persistent shell.
 
 ### Code intelligence and native protocol sessions
 
-`packages/plugin-sdk/src/codeIntelligence.ts` exports the shared registration,
+The SDK's `src/codeIntelligence.ts` exports the shared registration,
 request, result, diagnostic, edit, navigation, debugger, and validation contracts.
 `capabilities.codeIntelligence.register({ id, title, languages, run })` registers
 declarative adapter metadata and one worker handler. Other approved integrations
@@ -400,7 +402,7 @@ before committing.
 
 ### Linters, builds, and interactive terminals
 
-`packages/plugin-sdk/src/tooling.ts` defines the common registration, captured
+The SDK's `src/tooling.ts` defines the common registration, captured
 document version, execution ID, diagnostic, fix proposal, parser, and validation
 contracts. Linter and Compiler independently import that SDK, never one another.
 `capabilities.tooling.register({ id, title, kind, formats, parse })` accepts one
@@ -1450,8 +1452,8 @@ and encrypted-state qualification required for a release candidate.
 ### API 1 freeze and deprecation policy
 
 The public API 1 baseline is the compiler-emitted declaration set in
-`packages/plugin-sdk/api/v1/`. `npm run check:plugin-api`, included in
-`check:plugins`, compares the complete exported types, function signatures and
+`api/v1/` of the plugin SDK repository. Its `npm run check:api`, run by SDK
+CI, compares the complete exported types, function signatures and
 literal constants against that baseline. Internal implementation or comment
 changes do not require a new baseline. A changed declaration fails explicitly;
 the checker never rewrites the baseline during ordinary validation.
@@ -1468,7 +1470,7 @@ not candidate fixes. The freeze does not imply that manual accessibility,
 platform-installation or other readiness gates have passed.
 
 After review, an intentionally compatible future addition can update the
-baseline with `npm run check:plugin-api -- --update-baseline`; review its
+baseline with `npm run check:api -- --update-baseline` in the SDK repository; review its
 generated declaration diff, compatibility tests and migration documentation.
 Never regenerate the baseline merely to hide an unexpected failure or to admit
 a breaking API 1 change. Compiler upgrades also require declaration-diff review.
