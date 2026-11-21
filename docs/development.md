@@ -634,6 +634,140 @@ change to a plugin's own dependencies or compiler output belongs in its
 repository and requires a new plugin version. Never replace a released
 version's bytes or provenance.
 
+### Plugin and SDK workflow
+
+A plugin change can span three kinds of repository:
+
+| Repository | Owns |
+| --- | --- |
+| [denote-io/denote-plugin-sdk](https://github.com/denote-io/denote-plugin-sdk) | API 1 contract, manifest and catalog validation shared with Denote, and the `denote-plugin` command |
+| `denote-io/denote-<name>` | One plugin's source, tests, CI, and **Release** workflow |
+| This repository | Host implementation, SDK pin, and catalog and bundle metadata |
+
+The numbered steps below run in order. Each kind of change uses only some of
+them:
+
+- **Change an existing plugin.** When it uses only capabilities in a published
+  Denote release, use steps 4 and 5. Raise its `minimumDenoteVersion` only when
+  it starts using a capability from a later published release. If the new version
+  requests different permissions, automatic updates skip it and users approve
+  it through **Review and update** or **Update all**, so explain the change in
+  the plugin guide. After adoption, update its sections in
+  [plugins.md](plugins.md), this file, and
+  [Optional plugins](<user-guide/docs/Optional plugins.md>) when behavior or
+  permissions changed.
+- **Change a plugin and the host contract.** When the SDK change adds a
+  manifest field, permission, capability, or host operation, use steps 1, 2,
+  4, and 5: release the SDK, ship host support in a Denote release, then move
+  the plugin to the new SDK tag, raise its `minimumDenoteVersion` to that
+  release, and release and adopt it.
+- **Change a plugin and SDK tooling or helpers.** When the change is in the
+  `denote-plugin` command or in SDK helpers compiled into the plugin bundle,
+  and the host is unchanged, use steps 1, 4, and 5. In the plugin repository,
+  move to the new tag with
+  `npm install github:denote-io/denote-plugin-sdk#v<version>`.
+- **Change only the SDK.** Use step 1. Nothing else changes: this repository
+  and every plugin keep their pinned tag. Move this repository (step 2) when its
+  validation, contracts, or host need the change; `check:plugins` then
+  revalidates every catalog entry with the new SDK, so a stricter validator
+  reports existing entries it would reject. Move a plugin only when it needs
+  the change, as a new plugin version (steps 4 and 5).
+- **Add a plugin.** Use steps 3 to 5, or every step when it needs new host
+  support.
+
+Moving a plugin to another SDK tag always changes its archive bytes, because
+the archived `package.json` records the SDK version. Develop SDK and plugin
+changes together with a linked local SDK checkout, described after the steps,
+before releasing the SDK.
+
+1. **Release the SDK.** In the SDK repository, make the change and run
+   `npm run check`. If public declarations change, review the
+   [API 1 freeze and deprecation policy](plugins.md#api-1-freeze-and-deprecation-policy)
+   before recording them with `npm run check:api -- --update-baseline`. Bump
+   `version` in `package.json`, update the tag in its README examples, run
+   `npm run build` to regenerate `dist/`, and merge with CI passing. Tag the
+   merge commit and publish the release:
+
+   ```bash
+   gh release create v0.2.0 -R denote-io/denote-plugin-sdk \
+     --target <merge-commit> --title "Denote plugin SDK 0.2.0" --generate-notes
+   ```
+
+2. **Support it in Denote.** Move this repository to the new SDK when plugins
+   need a new manifest field, permission, capability, or host operation:
+   `check:plugins` validates catalog manifests with the pinned SDK, and the
+   frontend uses its contracts.
+
+   ```bash
+   npm install github:denote-io/denote-plugin-sdk#v0.2.0
+   ```
+
+   Implement and test the host side, including native manifest validation in
+   `src-tauri/src/plugins/`, in the same pull request. Plugins can rely on it
+   only after a Denote release ships it.
+
+3. **Create the plugin repository.** Plugin ID `denote.<name>` lives in
+   `denote-io/denote-<name>`. Scaffold with the SDK release the plugin needs;
+   the scaffold pins that tag and records the repository in its manifest:
+
+   ```bash
+   npx --package github:denote-io/denote-plugin-sdk#v0.2.0 \
+     denote-plugin create denote-example denote.example "Example plugin"
+   cd denote-example
+   npm install
+   git init -b main && git add -A && git commit -m "Scaffold the Example plugin"
+   gh repo create denote-io/denote-example --public --source . --push
+   ```
+
+   The scaffold has no lockfile; `npm install` creates the
+   `package-lock.json` that its CI's `npm ci` requires.
+
+   Set `compatibility.minimumDenoteVersion` in `plugin.json` to the earliest
+   published Denote release that provides every capability the plugin uses,
+   raising the scaffold's `0.1.0` when it needs a later capability. Denote
+   compares it with its own application version, which feature branches keep
+   at the latest published release, so an unreleased minimum makes the plugin
+   incompatible in development builds and tests. Develop it in
+   **Denote Development** as described above.
+
+4. **Release the plugin.** Bump `version` in both `plugin.json` and
+   `package.json` in the same pull request as a change to the archive: plugin
+   CI rebuilds it and fails when the current version is already published with
+   different bytes. Changes outside the archive, such as the README, tests, or
+   CI, need no bump, and later changes before the next release keep the
+   already bumped version. Merge with CI passing, and run the **Release**
+   workflow once the Denote release named by its minimum is published. It
+   publishes `denote.example-<version>.tgz` as the `v<version>` release asset.
+
+   ```bash
+   gh workflow run release.yml -R denote-io/denote-example
+   ```
+
+5. **Adopt the release here.** Follow
+   [Adopt a plugin release](#adopt-a-plugin-release). A new plugin also needs:
+   - its roles in `plugins/bundles.json`, when it fills one;
+   - its contract section in [plugins.md](plugins.md), a development section in
+     this file, and its section in
+     [Optional plugins](<user-guide/docs/Optional plugins.md>);
+   - its icon in [denote-io/denote.synctune.it](https://github.com/denote-io/denote.synctune.it);
+   - a row in the plugins table of the
+     [organization profile](https://github.com/denote-io/.github/blob/main/profile/README.md).
+
+   Adoption does not bump the application version. The application compiles
+   `plugins/catalog.json` in, so users are offered the adopted version with
+   the next Denote release.
+
+To try an unreleased SDK change, link a local checkout without editing
+`package.json`, either in a plugin repository or here:
+
+```bash
+(cd ../denote-plugin-sdk && npm ci && npm run build)
+npm install --no-save --ignore-scripts ../denote-plugin-sdk
+```
+
+`npm run build` refreshes the `dist/` entry that Node.js and Playwright load.
+`npm ci` restores the pinned SDK.
+
 ### Adopt a plugin release
 
 Plugin versions are built, verified, and published by their own repositories.
@@ -1293,7 +1427,9 @@ npx tsc --noEmit -p tsconfig.node.json
 
 Plugin dependencies are managed in each plugin repository, not here. The plugin
 SDK is a `github:denote-io/denote-plugin-sdk#v<version>` dependency; update it
-to a new SDK release tag deliberately. It changes the host contract and catalog
+to a new SDK release tag deliberately, as in
+[Plugin and SDK workflow](#plugin-and-sdk-workflow). It changes the host
+contract and catalog
 validation; published plugin archives keep the SDK version they were built with.
 Cargo backports in `src-tauri/vendor/` are reached only
 through `[patch.crates-io]`, never as application workspace members, so
@@ -1669,7 +1805,33 @@ notes and issue/PR trackers, and RustSec for each package. Record the date,
 versions examined, exact evidence links, and whether a compatible upstream
 release can replace the local source. Report a compatible fix explicitly.
 
-Last vendored-library check: **2026-11-21**.
+Last vendored-library check: **2026-11-21** (evening).
+Rechecked all seven vendor directories and `[patch.crates-io]` entries before
+documenting the plugin and SDK workflow across repositories. The official
+sparse-registry records still list GLib 0.18.5 / 0.22.11, GLib macros
+0.18.5 / 0.22.11, GTK3 macros 0.18.2 / 0.19.0, URLPattern 0.3.0 / 0.6.0,
+notification 2.4.0 / 2.8.1, opener 2.5.5 / 2.7.3, single-instance
+2.4.5 / 2.5.5, and notify-rust 4.18.2 / 4.19.0 as the local/current stable
+pairs; the plugins' 3.0.0 alpha releases are not stable candidates. The
+[single-instance migration](https://github.com/tauri-apps/plugins-workspace/pull/3759),
+[notification zbus 6 update](https://github.com/tauri-apps/plugins-workspace/pull/3792),
+and [migration issue](https://github.com/tauri-apps/plugins-workspace/issues/3716)
+remain open and unreleased. No opener zbus 6 migration exists; the open
+[opener change](https://github.com/tauri-apps/plugins-workspace/pull/3725)
+keeps zbus 5.9. The plugins' `v2` branch still requires Tauri 2.12,
+`tauri-utils` 2.10, and zbus 5.9. The
+[0.18 branch](https://github.com/gtk-rs/gtk-rs-core/commits/0.18) is still at
+its 2023-12-30 head, and every `tauri-utils` 2.9 release still requires
+URLPattern `^0.3`. Tauri 2.12.7, Wry 0.57.3, and Tao 0.37.3 still require GTK
+0.18; the [Tao GTK 0.19 migration](https://github.com/tauri-apps/tao/pull/1332)
+is merged but unreleased, and the [Wry change](https://github.com/tauri-apps/wry/pull/1843)
+and [Tauri change](https://github.com/tauri-apps/tauri/pull/16170) are open
+drafts. The [RustSec snapshot](https://github.com/RustSec/advisory-db/tree/55e1c3dfbd834237a05bbbf7b50ba3b5be27b662/crates)
+adds only an unrelated advisory; GLib's RUSTSEC-2024-0429 and GTK3 macros'
+RUSTSEC-2024-0419 are unchanged. No compatible upstream fix replaces any
+backport; notify-rust 4.19.0 remains the only compatible candidate.
+
+Earlier vendored-library check: **2026-11-21**.
 Rechecked all seven vendor directories and `[patch.crates-io]` entries before
 migrating the plugins and the plugin SDK to the denote-io organization; the
 vendor root also holds only the test-only workspace `Cargo.toml` and
