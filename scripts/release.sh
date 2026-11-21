@@ -8,7 +8,6 @@ readonly RELEASE_FILES=(
   src-tauri/Cargo.toml
   src-tauri/Cargo.lock
   src-tauri/tauri.conf.json
-  plugins/catalog.json
 )
 
 fail() {
@@ -69,16 +68,15 @@ readonly REMOTE_TAG
 [[ -z "$REMOTE_TAG" ]] || fail "remote tag ${TAG} already exists"
 
 node scripts/updater-release.mjs status
-node scripts/preinstall-validate-plugins.mjs
 npm ci --ignore-scripts
 
 npm run release -- "$VERSION"
 npm run release -- --check "$TAG"
 
-npm run check:plugin-archives -- --base "$(git rev-parse origin/main)"
+npm run fetch:plugins
 npm test
 npm run check:plugins
-npm run package:plugins
+npm run check:plugin-downloads
 npm run prepare:bundled-tools
 npm run verify:bundled-tools
 npm run build
@@ -111,7 +109,7 @@ git diff --quiet -- "${RELEASE_FILES[@]}" &&
 git add \
   package.json package-lock.json \
   src-tauri/Cargo.toml src-tauri/Cargo.lock \
-  src-tauri/tauri.conf.json plugins/catalog.json
+  src-tauri/tauri.conf.json
 
 git diff --quiet ||
   fail "release files remain unstaged"

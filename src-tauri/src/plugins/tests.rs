@@ -1167,6 +1167,50 @@ fn release_catalog_still_requires_valid_trusted_provenance() {
 }
 
 #[test]
+fn catalog_accepts_only_the_plugins_own_repository_release() {
+    let mut catalog = catalog();
+    let version = catalog.manifest.version.clone();
+    let release = |repository: &str, tag: &str, version: &str| {
+        format!(
+            "https://github.com/denote-io/{repository}/releases/download/{tag}/denote.reference-{version}.tgz"
+        )
+    };
+    catalog.manifest.id = "denote.reference".to_string();
+    catalog.artifact.url = release("denote-reference", &format!("v{version}"), &version);
+    assert!(validate_catalog(&[catalog.clone()]).is_ok());
+    for repository in [
+        "https://github.com/mbianchidev/denote",
+        "https://github.com/denote-io/denote",
+        "https://github.com/denote-io/denote-reference",
+    ] {
+        catalog.manifest.repository = repository.to_string();
+        assert!(validate_catalog(&[catalog.clone()]).is_ok(), "{repository}");
+    }
+    for repository in [
+        "https://github.com/denote-io/denote-kanban",
+        "https://github.com/synthetic/denote-reference",
+    ] {
+        catalog.manifest.repository = repository.to_string();
+        assert!(
+            validate_catalog(&[catalog.clone()]).is_err(),
+            "{repository}"
+        );
+    }
+    catalog.manifest.repository = "https://github.com/denote-io/denote-reference".to_string();
+    for url in [
+        release("denote-kanban", &format!("v{version}"), &version),
+        release("denote-reference", "v9.9.9", &version),
+        release("denote-reference", &format!("v{version}"), "9.9.9"),
+        format!(
+            "https://github.com/synthetic/denote-reference/releases/download/v{version}/denote.reference-{version}.tgz"
+        ),
+    ] {
+        catalog.artifact.url = url.clone();
+        assert!(validate_catalog(&[catalog.clone()]).is_err(), "{url}");
+    }
+}
+
+#[test]
 fn catalog_rejects_release_asset_for_another_plugin_version() {
     let mut catalog = catalog();
     catalog.artifact.url =

@@ -43,7 +43,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.14.3/denote.reference-0.1.3.tgz",
+      "url": "https://github.com/denote-io/denote-reference/releases/download/v0.1.3/denote.reference-0.1.3.tgz",
       "sha256": "0b3e65d5272bb8199e28d16e70ecb2a7b0ea5055411eee8c381348ed16145d74",
       "sizeBytes": 16429
     },
@@ -306,7 +306,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.14.3/denote.git-0.10.2.tgz",
+      "url": "https://github.com/denote-io/denote-git/releases/download/v0.10.2/denote.git-0.10.2.tgz",
       "sha256": "a32d1534f024c58ebe235b06d049b103a35a2d09ff20700236d586cef0271585",
       "sizeBytes": 73885
     },
@@ -376,7 +376,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.14.3/denote.emoji-picker-0.1.3.tgz",
+      "url": "https://github.com/denote-io/denote-emoji-picker/releases/download/v0.1.3/denote.emoji-picker-0.1.3.tgz",
       "sha256": "442a2737c78f971db58a4fb6d8405a05bf997b5475496b7986ce579e682f95d0",
       "sizeBytes": 105664
     },
@@ -416,7 +416,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.14.3/denote.json-yaml-viewer-0.1.4.tgz",
+      "url": "https://github.com/denote-io/denote-json-yaml-viewer/releases/download/v0.1.4/denote.json-yaml-viewer-0.1.4.tgz",
       "sha256": "5daab944e1d6d7c85e22a81bafcad3abb742303de9a2a2fc713c81ea96456422",
       "sizeBytes": 66788
     },
@@ -462,7 +462,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.14.3/denote.mermaid-0.3.0.tgz",
+      "url": "https://github.com/denote-io/denote-mermaid/releases/download/v0.3.0/denote.mermaid-0.3.0.tgz",
       "sha256": "c1fcb78c9404c375a98b778c865417cac72863096d09fc49ae3d86574b71cf65",
       "sizeBytes": 317860
     },
@@ -502,7 +502,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.14.3/denote.kanban-0.1.7.tgz",
+      "url": "https://github.com/denote-io/denote-kanban/releases/download/v0.1.7/denote.kanban-0.1.7.tgz",
       "sha256": "8a224ee22be7da89391ba922a485f9f82760d83d15f40f41899587c4c6f2a302",
       "sizeBytes": 24096
     },
@@ -542,7 +542,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.14.3/denote.note-graph-0.1.8.tgz",
+      "url": "https://github.com/denote-io/denote-note-graph/releases/download/v0.1.8/denote.note-graph-0.1.8.tgz",
       "sha256": "43954162672b8d473e46f9c1edc242e01cc8b81be00a2629f95ecb14d48c04dd",
       "sizeBytes": 75121
     },
@@ -608,7 +608,7 @@
       }
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.14.3/denote.calendar-0.2.3.tgz",
+      "url": "https://github.com/denote-io/denote-calendar/releases/download/v0.2.3/denote.calendar-0.2.3.tgz",
       "sha256": "56af8d2430e3dea1faee7bd96b4e3c1120fe1ed0c6cdb46ed61c9a57ea4a4db8",
       "sizeBytes": 68793
     },
@@ -648,7 +648,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.14.3/denote.task-lists-0.1.5.tgz",
+      "url": "https://github.com/denote-io/denote-task-lists/releases/download/v0.1.5/denote.task-lists-0.1.5.tgz",
       "sha256": "f32374f156f502971c564603031dd8b125ed4ef5a2aa60091bdf3b40144e76da",
       "sizeBytes": 70761
     },
@@ -704,7 +704,7 @@
       }
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.14.3/denote.reminders-0.3.4.tgz",
+      "url": "https://github.com/denote-io/denote-reminders/releases/download/v0.3.4/denote.reminders-0.3.4.tgz",
       "sha256": "4439d3fa931ddf55bb0945d728d24a8dc7cfaeb4372b4eeeab9a48599bac0ea5",
       "sizeBytes": 74735
     },
@@ -750,7 +750,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.14.3/denote.code-intelligence-0.1.3.tgz",
+      "url": "https://github.com/denote-io/denote-code-intelligence/releases/download/v0.1.3/denote.code-intelligence-0.1.3.tgz",
       "sha256": "fcdd431812d58b14cacc905380a5641f606c8fb8ac2a32a84071517890968915",
       "sizeBytes": 27621
     },
@@ -796,7 +796,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.14.3/denote.time-tracking-0.2.1.tgz",
+      "url": "https://github.com/denote-io/denote-time-tracking/releases/download/v0.2.1/denote.time-tracking-0.2.1.tgz",
       "sha256": "02d515c52ab0e72071a62cbad74e16ca4868ddbad19711418598cfbfa5b29cfd",
       "sizeBytes": 26903
     },
@@ -836,7 +836,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.14.3/denote.text-styling-0.1.1.tgz",
+      "url": "https://github.com/denote-io/denote-text-styling/releases/download/v0.1.1/denote.text-styling-0.1.1.tgz",
       "sha256": "8cbe4309dbda60e3475341ea5ce0fe45a3865b2b0bc16d25b9a9c2290171f652",
       "sizeBytes": 68578
     },
@@ -876,7 +876,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.14.3/denote.note-comments-0.1.1.tgz",
+      "url": "https://github.com/denote-io/denote-note-comments/releases/download/v0.1.1/denote.note-comments-0.1.1.tgz",
       "sha256": "166bf798be211a907ac10ed8fed50b528215b4cf9d0334f76b27fbab0253d351",
       "sizeBytes": 18485
     },
@@ -916,7 +916,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.14.3/denote.presentations-0.1.2.tgz",
+      "url": "https://github.com/denote-io/denote-presentations/releases/download/v0.1.2/denote.presentations-0.1.2.tgz",
       "sha256": "c228c0d69453c9d24a8c8a0674addcf9a0772cad1290b9f9b28f5f492842b4d8",
       "sizeBytes": 66663
     },
@@ -956,7 +956,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.14.3/denote.speech-0.1.1.tgz",
+      "url": "https://github.com/denote-io/denote-speech/releases/download/v0.1.1/denote.speech-0.1.1.tgz",
       "sha256": "2e02bfa6c7f7aff3f486d6774cae4c8814247de4443043d9fb330a6eb4dc4e28",
       "sizeBytes": 16688
     },
@@ -996,7 +996,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.14.3/denote.credential-store-0.1.1.tgz",
+      "url": "https://github.com/denote-io/denote-credential-store/releases/download/v0.1.1/denote.credential-store-0.1.1.tgz",
       "sha256": "0e36ad05a11907647fad6351465eab84bcef601d54ba4b0366eacd73e4cb5dba",
       "sizeBytes": 16594
     },
@@ -1042,7 +1042,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.14.3/denote.linter-0.1.1.tgz",
+      "url": "https://github.com/denote-io/denote-linter/releases/download/v0.1.1/denote.linter-0.1.1.tgz",
       "sha256": "1c0dda7ed3d6b3e2631939712c16639fab5e2c7b6bdd4428a66ab294c69cda49",
       "sizeBytes": 19156
     },
@@ -1088,7 +1088,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.14.3/denote.compiler-0.1.1.tgz",
+      "url": "https://github.com/denote-io/denote-compiler/releases/download/v0.1.1/denote.compiler-0.1.1.tgz",
       "sha256": "259420e83582ba0b8d4992f0014243cfc34abbb0ba86cd5d88c44138a130401d",
       "sizeBytes": 19142
     },
@@ -1134,7 +1134,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.14.3/denote.terminal-0.1.1.tgz",
+      "url": "https://github.com/denote-io/denote-terminal/releases/download/v0.1.1/denote.terminal-0.1.1.tgz",
       "sha256": "c60b1d2c871727c602f47ced75a3e19fa4e2bdc70126a5dce735e760ce63bd0a",
       "sizeBytes": 16964
     },

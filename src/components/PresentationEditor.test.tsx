@@ -1,11 +1,11 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PluginAuthoringRequest, PluginAuthoringResult, PluginPresentationModel } from "@denote/plugin-sdk";
 import { DEFAULT_EDITOR_DISPLAY_SETTINGS } from "../lib/editorDisplay";
 import { PresentationEditor } from "./PresentationEditor";
-import { presentationRequest } from "../../plugins/presentations/src/deck";
+import { activateReleasedPlugin, type ActivatedReleasedPlugin } from "../test/releasedPlugins";
 
 vi.mock("./PlainTextEditor", () => ({
   PlainTextEditor: ({ value, onChange, onCursorChange }: {
@@ -37,7 +37,14 @@ const base = {
   onChange: vi.fn(), onClose: vi.fn(),
 };
 let fullscreen: Element | null = null;
+let presentations: ActivatedReleasedPlugin;
+const presentationRequest = (request: PluginAuthoringRequest) =>
+  presentations.registration("authoring").request(request);
 
+beforeAll(async () => {
+  presentations = await activateReleasedPlugin("denote.presentations");
+}, 120_000);
+afterAll(() => presentations?.dispose());
 beforeEach(() => {
   fullscreen = null;
   vi.clearAllMocks();

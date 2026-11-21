@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { mockIPC } from "@tauri-apps/api/mocks";
-import { CODE_LANGUAGES, assertValidPluginCatalogEntry, parsePluginManifest, type PluginGitResult } from "@denote/plugin-sdk";
+import { CODE_LANGUAGES, assertValidPluginCatalogEntry, type PluginGitResult } from "@denote/plugin-sdk";
 import type { InstalledPlugin, PluginView } from "../src/types";
 import type { api } from "../src/lib/api";
 import type { ToolEnvironment } from "../src/lib/projectTools";
@@ -50,12 +50,10 @@ window.Worker = class extends NativeWorker {
   }
 };
 
-const files = import.meta.glob<string>("../plugins/*/dist/*.js", {
+// Released bundles staged by `npm run fetch:plugins`, one directory per plugin ID.
+const files = import.meta.glob<string>("../.plugin-artifacts/*/dist/*.js", {
   eager: true, query: "?raw", import: "default",
 });
-const roots = new Map(Object.entries(import.meta.glob("../plugins/*/plugin.json", {
-  eager: true, import: "default",
-})).map(([path, value]) => [parsePluginManifest(value).id, path.slice(0, -"/plugin.json".length)]));
 const plugins: PluginView[] = catalogJson.map((value) => {
   const catalog: unknown = value;
   assertValidPluginCatalogEntry(catalog);
@@ -89,7 +87,7 @@ function pluginFor(payload: unknown): PluginView {
 }
 function source(plugin: PluginView, entrypoint: string): string {
   const id = plugin.catalog.manifest.id;
-  const code = files[`${roots.get(id)}/${entrypoint}`];
+  const code = files[`../.plugin-artifacts/${id}/${entrypoint}`];
   if (typeof code !== "string") throw new Error(`Missing compiled synthetic entrypoint for ${id}.`);
   return code;
 }

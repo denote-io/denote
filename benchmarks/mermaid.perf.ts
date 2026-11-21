@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 import { build } from "vite";
-import { buildPlugin, pluginDirectories } from "../scripts/plugin-build";
-import { MERMAID_COMPATIBILITY_FIXTURES } from "../plugins/mermaid/tests/fixtures";
+import { releasedPluginPath, stageReleasedPlugins } from "../src/test/releasedPlugins";
+import { MERMAID_COMPATIBILITY_FIXTURES } from "./mermaidFixtures";
 
 let rendererSource = "";
 let hostSource = "";
@@ -10,8 +10,8 @@ let pageErrors: string[] = [];
 let unexpectedRequests: string[] = [];
 
 test.beforeAll(async () => {
-  await buildPlugin(pluginDirectories("denote.mermaid")[0]);
-  rendererSource = await readFile("plugins/mermaid/dist/renderer.js", "utf8");
+  await stageReleasedPlugins(["denote.mermaid"]);
+  rendererSource = await readFile(releasedPluginPath("denote.mermaid", "dist", "renderer.js"), "utf8");
   const result = await build({
     configFile: false,
     logLevel: "error",
