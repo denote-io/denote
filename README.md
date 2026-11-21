@@ -32,7 +32,7 @@ between Rich and Source does not rewrite its source.
 
 ## Download
 
-Use the [Denote website](https://mbianchidev.github.io/denote/) or
+Use the [Denote website](https://denote.synctune.it) or
 [latest GitHub Release](https://github.com/mbianchidev/denote/releases/latest)
 to download the package for your platform.
 

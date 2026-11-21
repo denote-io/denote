@@ -122,7 +122,9 @@ and Linux bundles, so those platforms install only the raw signed artifacts
 named by the release contract.
 
 `release-assets.json` is the shared desktop download and updater naming
-contract. Release scripts stage architecture-qualified updater assets, require
+contract. The public website in
+[denote-io/denote.synctune.it](https://github.com/denote-io/denote.synctune.it) reads it from
+`main` to resolve platform downloads. Release scripts stage architecture-qualified updater assets, require
 their `.sig` files, include them in checksums/attestations, and generate complete
 static `latest.json` metadata only when updater provisioning is enabled.
 `tauri.release.conf.json` supplies the same Base64 public-key value to Tauri's
