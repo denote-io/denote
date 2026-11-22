@@ -1,6 +1,6 @@
 [package]
 name = "denote"
-version = "0.14.3"
+version = "1.0.0-rc.1"
 description = "A local-first Markdown vault for desktop"
 authors = ["Matteo Bianchi"]
 edition = "2024"
