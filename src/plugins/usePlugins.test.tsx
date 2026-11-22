@@ -22,6 +22,7 @@ import { usePlugins } from "./usePlugins";
 interface MockRuntimeInstance {
   running: boolean;
   onCommandsChanged: unknown;
+  onError: unknown;
   onSourceControlProvidersChanged?: unknown;
   onAutomaticLocalCommitsChanged?: unknown;
   onEmojiPickersChanged?: (pickers: PluginEmojiPickerContribution[]) => void;
@@ -670,6 +671,106 @@ describe("usePlugins", () => {
     });
     },
   );
+
+  // Release gate: every catalog plugin has an explicit locked-vault contract.
+  // Content plugins must not run while the vault is locked; the others keep
+  // only metadata or rely on native refusal of locked-vault operations.
+  const lockedVaultContract: Record<string, "stops while locked" | "keeps running"> = {
+    "denote.reference": "keeps running",
+    "denote.git": "keeps running",
+    "denote.emoji-picker": "keeps running",
+    "denote.json-yaml-viewer": "stops while locked",
+    "denote.mermaid": "stops while locked",
+    "denote.kanban": "stops while locked",
+    "denote.note-graph": "stops while locked",
+    "denote.calendar": "stops while locked",
+    "denote.task-lists": "stops while locked",
+    "denote.reminders": "keeps running",
+    "denote.code-intelligence": "stops while locked",
+    "denote.time-tracking": "keeps running",
+    "denote.text-styling": "stops while locked",
+    "denote.note-comments": "stops while locked",
+    "denote.presentations": "stops while locked",
+    "denote.speech": "stops while locked",
+    "denote.credential-store": "stops while locked",
+    "denote.linter": "stops while locked",
+    "denote.compiler": "stops while locked",
+    "denote.terminal": "stops while locked",
+  };
+
+  it("declares a locked-vault contract for every catalog plugin", () => {
+    expect(Object.keys(lockedVaultContract).sort())
+      .toEqual(catalogJson.map((entry) => entry.manifest.id).sort());
+  });
+
+  it.each(catalogJson.map((entry) => [entry.manifest.id, entry] as const))(
+    "applies the locked-vault contract to %s's real catalog permissions",
+    async (id, entryValue) => {
+      const entry: unknown = entryValue;
+      assertValidPluginCatalogEntry(entry);
+      const enabled = makePlugin({
+        catalog: entry,
+        status: "enabled",
+        enabled: true,
+        previouslyApproved: true,
+        approvedPermissions: entry.manifest.permissions,
+      });
+      const contract = lockedVaultContract[id];
+      const rendered = await mountReady([enabled], null, "/synthetic/encrypted-vault", false);
+      const runtime = runtimeInstances[0];
+      if (contract === "stops while locked") {
+        expect(runtime.start).not.toHaveBeenCalled();
+        rendered.rerender({
+          currentProjectContext: null,
+          currentWorkspaceIdentity: "/synthetic/encrypted-vault",
+          currentContentAvailable: true,
+        });
+      }
+      await waitFor(() => expect(runtime.start).toHaveBeenCalledWith(enabled));
+      runtime.stop.mockClear();
+      runtime.forceStop.mockClear();
+
+      rendered.rerender({
+        currentProjectContext: null,
+        currentWorkspaceIdentity: "/synthetic/encrypted-vault",
+        currentContentAvailable: false,
+      });
+
+      if (contract === "stops while locked") {
+        await waitFor(() => expect(
+          runtime.stop.mock.calls.length + runtime.forceStop.mock.calls.length,
+        ).toBeGreaterThan(0));
+      } else {
+        await act(async () => { await Promise.resolve(); });
+        expect(runtime.stop).not.toHaveBeenCalled();
+        expect(runtime.forceStop).not.toHaveBeenCalled();
+      }
+      expect(api.disablePlugin).not.toHaveBeenCalled();
+    },
+  );
+
+  it("disables and removes a running plugin whose worker crashes", async () => {
+    const enabled = makePlugin({
+      status: "enabled",
+      enabled: true,
+      approvedPermissions: catalog.manifest.permissions,
+    });
+    const { result } = await mountReady([enabled]);
+    const runtime = runtimeInstances[0];
+    await waitFor(() => expect(runtime.start).toHaveBeenCalledWith(enabled));
+    vi.mocked(api.disablePlugin).mockResolvedValue(undefined);
+    queueListPlugins([{ ...enabled, status: "not-installed", enabled: false }]);
+    const crash = new Error("Synthetic worker crash");
+
+    await act(async () => {
+      (runtime.onError as (pluginId: string, error: unknown) => void)(pluginId, crash);
+    });
+
+    await waitFor(() => expect(api.disablePlugin).toHaveBeenCalledWith(pluginId));
+    expect(api.rollbackPluginEnable).not.toHaveBeenCalled();
+    expect(reportError).toHaveBeenCalledWith(crash);
+    await waitFor(() => expect(result.current.plugins[0].enabled).toBe(false));
+  });
 
   it.each(["note-graph", "calendar", "task-list", "time-tracking", "text-styling", "note-comments", "presentation"] as const)("restarts %s workers when the host switches vaults", async (capability) => {
     const enabled = makePlugin({

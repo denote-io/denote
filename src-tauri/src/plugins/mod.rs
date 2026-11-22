@@ -22,6 +22,8 @@ mod download_tests;
 #[cfg(test)]
 mod emoji_tests;
 #[cfg(test)]
+mod failure_mode_tests;
+#[cfg(test)]
 mod signing_secret_tests;
 #[cfg(test)]
 mod tests;

@@ -1805,7 +1805,28 @@ notes and issue/PR trackers, and RustSec for each package. Record the date,
 versions examined, exact evidence links, and whether a compatible upstream
 release can replace the local source. Report a compatible fix explicitly.
 
-Last vendored-library check: **2026-11-21** (evening).
+Last vendored-library check: **2026-11-22**.
+Rechecked all seven vendor directories and `[patch.crates-io]` entries before
+the v1.0.0 release-hardening work. The official sparse-registry records still
+list the same local/current stable pairs as the previous check, and Tauri
+2.12.7, Wry 0.57.3, and Tao 0.37.3 still require GTK 0.18 while every
+`tauri-utils` 2.9 release requires URLPattern `^0.3`. The
+[single-instance migration](https://github.com/tauri-apps/plugins-workspace/pull/3759),
+[notification zbus 6 update](https://github.com/tauri-apps/plugins-workspace/pull/3792),
+[opener change](https://github.com/tauri-apps/plugins-workspace/pull/3725), and
+[migration issue](https://github.com/tauri-apps/plugins-workspace/issues/3716)
+remain open and unreleased. The
+[Wry change](https://github.com/tauri-apps/wry/pull/1843) and
+[Tauri change](https://github.com/tauri-apps/tauri/pull/16170) are still open
+drafts, the [Tao migration](https://github.com/tauri-apps/tao/pull/1332) is
+still unreleased, and the
+[0.18 branch](https://github.com/gtk-rs/gtk-rs-core/commits/0.18) is still at
+its 2023-12-30 head. The
+[RustSec snapshot](https://github.com/RustSec/advisory-db/tree/55e1c3dfbd834237a05bbbf7b50ba3b5be27b662/crates)
+is unchanged. No compatible upstream fix replaces any backport; notify-rust
+4.19.0 remains the only compatible candidate.
+
+Earlier vendored-library check: **2026-11-21** (evening).
 Rechecked all seven vendor directories and `[patch.crates-io]` entries before
 documenting the plugin and SDK workflow across repositories. The official
 sparse-registry records still list GLib 0.18.5 / 0.22.11, GLib macros

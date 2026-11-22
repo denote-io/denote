@@ -27,6 +27,129 @@ test.beforeAll(async () => {
   fixture = chunk.code;
 });
 
+test("repeated enable and disable cycles release workers, ports, closures, listeners and DOM nodes", async ({ page }, info) => {
+  test.setTimeout(240_000);
+  const cycledIds = [
+    "denote.kanban", "denote.mermaid", "denote.time-tracking",
+    "denote.git", "denote.terminal", "denote.emoji-picker",
+  ];
+  const manifests = cycledIds.map((id) => {
+    const entry = catalogJson.find((candidate) => candidate.manifest.id === id);
+    if (!entry) throw new Error(`Missing catalog plugin ${id}.`);
+    return entry.manifest;
+  });
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.addInitScript({ content:
+    `localStorage.setItem(${JSON.stringify(THEME_STORAGE_KEY)}, "dark");\n${fixture}` });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Authoring.md", exact: true }).click();
+  await page.getByRole("button", { name: "Open settings", exact: true }).click();
+  await page.getByRole("button", { name: "Plugins", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "Settings", exact: true });
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Performance.enable");
+  await cdp.send("HeapProfiler.enable");
+  const settledMetrics = async () => {
+    await cdp.send("HeapProfiler.collectGarbage");
+    await cdp.send("HeapProfiler.collectGarbage");
+    const { metrics } = await cdp.send("Performance.getMetrics");
+    const value = (name: string) => {
+      const metric = metrics.find((candidate) => candidate.name === name);
+      if (!metric) throw new Error(`Missing browser metric ${name}.`);
+      return metric.value;
+    };
+    const live = async (constructor: string) => {
+      const prototype = await cdp.send("Runtime.evaluate", { expression: `${constructor}.prototype`, objectGroup: "leak-check" });
+      const prototypeId = prototype.result.objectId;
+      if (!prototypeId) throw new Error(`Missing ${constructor} prototype.`);
+      const { objects } = await cdp.send("Runtime.queryObjects", { prototypeObjectId: prototypeId, objectGroup: "leak-check" });
+      if (!objects.objectId) throw new Error(`Missing ${constructor} instances.`);
+      const length = await cdp.send("Runtime.callFunctionOn", {
+        objectId: objects.objectId, functionDeclaration: "function () { return this.length; }", returnByValue: true,
+      });
+      // Query results pin every match; release them so later samples are not inflated.
+      await cdp.send("Runtime.releaseObjectGroup", { objectGroup: "leak-check" });
+      return Number(length.result.value);
+    };
+    return {
+      heapBytes: value("JSHeapUsedSize"),
+      listeners: value("JSEventListeners"),
+      nodes: value("Nodes"),
+      documents: value("Documents"),
+      workers: await live("Worker"),
+      ports: await live("MessagePort"),
+      functions: await live("Function"),
+      maps: await live("Map"),
+      promises: await live("Promise"),
+    };
+  };
+  const cycle = async () => {
+    for (const manifest of manifests) {
+      const card = settings.locator(".plugin-card").filter({ has: page.getByText(manifest.name, { exact: true }) });
+      await setCardOpen(page, card, true);
+      await card.getByRole("button", { name: "Enable", exact: true }).focus();
+      await page.keyboard.press("Enter");
+      await card.getByRole("button", { name: "Approve and enable", exact: true }).focus();
+      await page.keyboard.press("Enter");
+      await expect.poll(() => page.evaluate(() => window.__DENOTE_PLUGIN_LIFECYCLE__.activeWorkers)).toContain(manifest.id);
+      await expect(card.locator(":scope > summary")).toContainText("Enabled");
+      await setCardOpen(page, card, true);
+      await card.getByRole("button", { name: "Disable and remove code", exact: true }).focus();
+      await page.keyboard.press("Enter");
+      if (manifest.permissions.some((permission) => permission.capability === "clocks")) {
+        const confirm = page.getByRole("button", { name: "Stop clocks and disable", exact: true });
+        await confirm.focus();
+        await page.keyboard.press("Enter");
+      }
+      await expect.poll(() => page.evaluate(() => window.__DENOTE_PLUGIN_LIFECYCLE__.activeWorkers)).toEqual([]);
+      await setCardOpen(page, card, false);
+    }
+    expect(await page.evaluate(() => window.__DENOTE_PLUGIN_LIFECYCLE__.installed)).toEqual([]);
+  };
+
+  // The first cycle loads lazy modules and staged bundles; later cycles must
+  // return to that settled baseline.
+  await cycle();
+  const baseline = await settledMetrics();
+  const measuredCycles = 5;
+  for (let index = 0; index < measuredCycles; index += 1) await cycle();
+  const final = await settledMetrics();
+  await cdp.detach();
+  await info.attach("plugin-cycle-metrics.json", {
+    body: JSON.stringify({ plugins: cycledIds, measuredCycles, baseline, final }, null, 2),
+    contentType: "application/json",
+  });
+
+  const lifecycle = await page.evaluate(() => ({
+    started: window.__DENOTE_PLUGIN_LIFECYCLE__.startedWorkers.length,
+    terminated: window.__DENOTE_PLUGIN_LIFECYCLE__.terminatedWorkers.length,
+    committed: window.__DENOTE_PLUGIN_LIFECYCLE__.committed,
+    removed: window.__DENOTE_PLUGIN_LIFECYCLE__.removed,
+  }));
+  expect(lifecycle.terminated).toBe(lifecycle.started);
+  for (const id of cycledIds) {
+    expect(lifecycle.committed.filter((value) => value === id)).toHaveLength(measuredCycles + 1);
+    expect(lifecycle.removed.filter((value) => value === id)).toHaveLength(measuredCycles + 1);
+  }
+  // Thirty plugin cycles follow the warm-up. One leaked worker, port, closure,
+  // runtime map, promise, listener or DOM subtree per cycle exceeds these
+  // budgets. Remaining heap growth is V8 compiled code and bounded browser
+  // performance-entry buffers, so the heap budget is deliberately coarser.
+  const pluginCycles = cycledIds.length * measuredCycles;
+  expect(final.documents).toBe(baseline.documents);
+  expect(final.workers).toBe(baseline.workers);
+  expect(final.ports).toBe(baseline.ports);
+  for (const metric of ["functions", "maps", "promises", "listeners"] as const) {
+    expect(final[metric] - baseline[metric], metric).toBeLessThan(pluginCycles / 2);
+  }
+  expect(final.nodes - baseline.nodes).toBeLessThan(300);
+  expect(final.heapBytes - baseline.heapBytes).toBeLessThan(8 * 1024 * 1024);
+  expect(await page.evaluate(() => window.__DENOTE_AUTHORING__.saves)).toEqual([]);
+  expect(await page.evaluate(() => window.__DENOTE_AUTHORING__.unexpectedCommands)).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
 test("every catalog worker requires approval, preserves content, exposes accessible surfaces and releases on disable", async ({ page }, info) => {
   test.setTimeout(120_000);
   const errors: string[] = [];
