@@ -50,7 +50,7 @@ other regular file. Your files remain the source of truth.
 | --- | --- |
 | Rich Markdown | This page |
 | Internal links | [Getting started](<docs/Getting started.md>) |
-| External links | [Denote on GitHub](https://github.com/mbianchidev/denote) |
+| External links | [Denote on GitHub](https://github.com/denote-io/denote) |
 | Edge cases | The multilingual `test` folder |
 | Images | The orbit above |
 | Callouts | The information and warning boxes |
@@ -133,6 +133,8 @@ ambiguous `.pp` behavior.
 9. [Keyboard shortcuts](<docs/Keyboard shortcuts.md>)
 10. [Optional plugins](<docs/Optional plugins.md>)
 11. [App lock](<docs/App lock.md>)
+12. [Data, backups, and removal](<docs/Data, backups, and removal.md>)
+13. [Troubleshooting](<docs/Troubleshooting.md>)
 
 Explore the `test` folder for Japanese, Russian, mixed-script, emoji,
 punctuation, nested-path, link, rename, and move fixtures. Use `examples`,

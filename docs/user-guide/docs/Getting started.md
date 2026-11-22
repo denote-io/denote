@@ -26,7 +26,7 @@ operating system Trash. The current vault and built-in guide cannot be removed.
 ## Opening an unsigned macOS build
 
 Only use this workaround for a trusted download from the
-[official Denote releases](https://github.com/mbianchidev/denote/releases).
+[official Denote releases](https://github.com/denote-io/denote/releases).
 Verify the disk image against that release's `SHA256SUMS` before continuing.
 
 1. Open the disk image and drag `Denote.app` into **Applications**.
