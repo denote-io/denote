@@ -54,4 +54,6 @@ history. Someone with access to the same OS account can access or modify those
 files outside Denote. Use [vault encryption](<Vault encryption.md>) when you
 also need content encryption at rest.
 
+[Next: Data, backups, and removal](<Data, backups, and removal.md>)
+
 #guide #security

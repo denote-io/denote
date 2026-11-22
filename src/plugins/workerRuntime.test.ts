@@ -2091,6 +2091,31 @@ describe("PluginWorkerRuntime", () => {
     );
   });
 
+  it("tears down a worker that throws an uncaught error and reports the crash once", async () => {
+    const onCommandsChanged = vi.fn();
+    const onError = vi.fn();
+    const runtime = new PluginWorkerRuntime(onCommandsChanged, onError);
+    await runtime.start(plugin());
+    const worker = FakeWorker.instances[0];
+    expect(onCommandsChanged).toHaveBeenLastCalledWith([
+      expect.objectContaining({ id: "denote.reference.ping" }),
+    ]);
+
+    worker.dispatchEvent(new ErrorEvent("error", { message: "Synthetic uncaught failure" }));
+
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce());
+    expect(onError).toHaveBeenCalledWith(
+      "denote.reference",
+      expect.objectContaining({ message: "Synthetic uncaught failure" }),
+    );
+    expect(runtime.isRunning("denote.reference")).toBe(false);
+    expect(worker.terminated).toBe(true);
+    expect(onCommandsChanged).toHaveBeenLastCalledWith([]);
+    worker.dispatchEvent(new ErrorEvent("error", { message: "Late duplicate failure" }));
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    expect(onError).toHaveBeenCalledOnce();
+  });
+
   it("starts an installed version under its recorded manifest", async () => {
     const runtime = new PluginWorkerRuntime(vi.fn(), vi.fn());
     const installed = plugin();

@@ -6,6 +6,7 @@
 - [Architecture](architecture.md)
 - [Development](development.md)
 - [Optional plugin host](plugins.md)
+- [v1.0.0 release qualification](release-qualification.md)
 - [Built-in user guide](user-guide/Welcome.md)
 
 The files under `user-guide/` are the canonical source for the Denote Welcome

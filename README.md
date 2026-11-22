@@ -33,7 +33,7 @@ between Rich and Source does not rewrite its source.
 ## Download
 
 Use the [Denote website](https://denote.synctune.it) or
-[latest GitHub Release](https://github.com/mbianchidev/denote/releases/latest)
+[latest GitHub Release](https://github.com/denote-io/denote/releases/latest)
 to download the package for your platform.
 
 | Platform | Architecture | Packages |
@@ -49,7 +49,7 @@ an installed desktop build.
 ### Opening Denote on macOS
 
 Current macOS releases are unsigned. Only use this workaround for a trusted
-download from the [official Denote releases](https://github.com/mbianchidev/denote/releases).
+download from the [official Denote releases](https://github.com/denote-io/denote/releases).
 Verify the disk image against that release's matching checksum file before
 continuing.
 
@@ -181,7 +181,7 @@ Denote uses Tauri 2, React, TypeScript, and a Rust native core. Install:
   [CI workflow](.github/workflows/ci.yml) lists the Linux dependency packages.
 
 ```bash
-git clone https://github.com/mbianchidev/denote.git
+git clone https://github.com/denote-io/denote.git
 cd denote
 npm ci --ignore-scripts
 npm run prepare:pdf-assets
@@ -212,15 +212,17 @@ records their provenance, remaining version-based warning, and required checks.
 
 - [Built-in user guide](docs/user-guide/Welcome.md)
 - [Complete feature reference](docs/user-guide/docs/Feature%20reference.md)
+- [Data, backups, and removal](docs/user-guide/docs/Data,%20backups,%20and%20removal.md)
+- [Troubleshooting](docs/user-guide/docs/Troubleshooting.md)
 - [Product and design documentation](docs/index.md)
 - [Development setup and validation](docs/development.md)
 - [Optional plugin model](docs/plugins.md)
-- [GitHub Releases](https://github.com/mbianchidev/denote/releases)
+- [GitHub Releases](https://github.com/denote-io/denote/releases)
 
 ## Contributing
 
 Bug reports and pull requests are welcome. Use
-[GitHub issues](https://github.com/mbianchidev/denote/issues) to report a problem
+[GitHub issues](https://github.com/denote-io/denote/issues) to report a problem
 with reproduction steps and the build details from **About Denote**. Do not
 include private vault content or credentials. For changes, follow the
 [development guide](docs/development.md) and

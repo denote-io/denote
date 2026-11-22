@@ -501,7 +501,7 @@ snapshots, logs, or plaintext temporary files. This is not protection against a
 compromised OS/renderer, debugger, clipboard-history application, screen capture,
 swap, hibernation image, or externally generated crash dump. JavaScript and
 OS-owned copies cannot be reliably zeroized. Review the
-[security design](https://github.com/mbianchidev/denote/blob/main/docs/phase-6-security.md)
+[security design](https://github.com/denote-io/denote/blob/main/docs/phase-6-security.md)
 before storing sensitive data.
 
 Try [Credential store practice](<../plugins/Credential store.md>).
@@ -770,7 +770,7 @@ in encrypted vaults even after unlock; no plaintext mirror is created.
 Stopping only debugging keeps the language server. Stopping a language
 integration also stops its debugger. Disabling removes downloaded package code,
 not source or user-installed tools. Configuration remains for explicit later
-starts; **Clear plugin data** forgets approvals.
+starts; **Delete saved data** forgets approvals.
 
 Try the [code intelligence exercise](<../plugins/Code intelligence.md>).
 
@@ -1171,7 +1171,7 @@ source line, not copied heading or task body text. Reminder names and note paths
 live in local application plugin data outside vault encryption and may appear in
 the operating system's notification history or lock screen. Disablement removes
 the view, stops the worker, and cancels host scheduling without deleting those
-records. Use **Clear data** in plugin settings to remove them.
+records. Use **Delete saved data** in plugin settings to remove them.
 
 Try [Reminder targets](<../plugins/Reminders.md>) for standalone, note, heading,
 and task targets. The example never creates a reminder until you choose a future
@@ -1491,7 +1491,7 @@ To remember a key's password, enter it in **Save passphrase for this key** and
 choose **Save passphrase**. This is optional and separate from plugin settings:
 the password lives in macOS Keychain, Windows Credential Manager, or Linux
 Secret Service, not settings JSON, exports, logs, or plugin code. It survives
-restarts until **Delete saved passphrase** or **Clear credentials**. The field
+restarts until **Delete saved passphrase** or **Delete credentials**. The field
 clears immediately after submission, including errors. Anyone with access to
 your unlocked operating-system account may be able to use saved credentials.
 Without a saved password, the system agent or pinentry remains available.
