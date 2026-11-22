@@ -560,7 +560,10 @@ About with **Restart to update** as the only user decision. Closing About defers
 installation without discarding the prepared update. The controls remain
 available for status and manual retry. Update controls use explicit checking,
 current, downloading, ready, installing, unconfigured, and failure states in a
-polite live region.
+polite live region. Beneath it, the standard settings checkbox **Include beta
+releases** opts into signed release candidates. It is disabled while the
+updater is unconfigured or busy, and the update channel row and status text
+name the selected channel.
 
 The public website extends the Quiet Workbench rather than introducing a
 separate marketing system; its design notes live with its source in

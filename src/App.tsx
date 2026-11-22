@@ -1,5 +1,6 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { RemoteImagesAllowedContext, useRemoteImagePreference } from "./lib/remoteImages";
+import { useUpdateChannelPreference, withUpdateChannel } from "./lib/updateChannel";
 import { listen } from "@tauri-apps/api/event";
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { forceParsing, syntaxTree } from "@codemirror/language";
@@ -1675,6 +1676,11 @@ function Workspace({ appLock }: { appLock: AppLockActions }) {
     [showError],
   );
   const remoteImages = useRemoteImagePreference(showError);
+  const updateChannel = useUpdateChannelPreference(showError);
+  const updateRuntimeInfo = useMemo(
+    () => withUpdateChannel(runtimeInfo, updateChannel.channel),
+    [runtimeInfo, updateChannel.channel],
+  );
   const toggleTheme = useCallback(() => {
     updateThemePreference(theme === "dark" ? "light" : "dark");
   }, [theme, updateThemePreference]);
@@ -4253,7 +4259,7 @@ function Workspace({ appLock }: { appLock: AppLockActions }) {
       }
       setUpdateState({ status: "checking" });
       try {
-        const update = await api.checkForUpdate();
+        const update = await api.checkForUpdate(updateChannel.channel);
         if (!update) {
           setUpdateState({ status: "current" });
         }
@@ -4271,7 +4277,7 @@ function Workspace({ appLock }: { appLock: AppLockActions }) {
         return null;
       }
     },
-    [runtimeInfo],
+    [runtimeInfo, updateChannel.channel],
   );
 
   const downloadUpdate = useCallback(
@@ -4283,7 +4289,7 @@ function Workspace({ appLock }: { appLock: AppLockActions }) {
         total: null,
       });
       try {
-        const verified = await api.downloadUpdate(update.version, (progress) => {
+        const verified = await api.downloadUpdate(updateChannel.channel, update.version, (progress) => {
           if (progress.event === "started") {
             setUpdateState({
               status: "downloading",
@@ -4319,7 +4325,7 @@ function Workspace({ appLock }: { appLock: AppLockActions }) {
         setUpdateState({ status: "error", message });
       }
     },
-    [],
+    [updateChannel.channel],
   );
 
   const checkAndDownloadUpdate = useCallback(async () => {
@@ -8556,7 +8562,7 @@ function Workspace({ appLock }: { appLock: AppLockActions }) {
       try {
         const url = buildBugReportUrl({
           buildInfo: BUILD_INFO,
-          runtimeInfo,
+          runtimeInfo: updateRuntimeInfo,
           currentError,
           diagnostics: recentDiagnostics.current,
         });
@@ -8568,7 +8574,7 @@ function Workspace({ appLock }: { appLock: AppLockActions }) {
     [
       externalDomainPolicy,
       openWebLinksWithPolicy,
-      runtimeInfo,
+      updateRuntimeInfo,
       showError,
     ],
   );
@@ -10091,8 +10097,15 @@ function Workspace({ appLock }: { appLock: AppLockActions }) {
     <AboutDialog
       open={aboutOpen}
       buildInfo={BUILD_INFO}
-      runtimeInfo={runtimeInfo}
+      runtimeInfo={updateRuntimeInfo}
       updateState={updateState}
+      updateChannel={updateChannel.channel}
+      onUpdateChannelChange={(channel) => {
+        updateChannel.update(channel);
+        if (updateState.status === "current" || updateState.status === "error") {
+          setUpdateState({ status: "idle" });
+        }
+      }}
       onCheckForUpdates={() => void checkAndDownloadUpdate()}
       onRestartUpdate={(update) => void restartWithUpdate(update)}
       onReportBug={() => reportBug(null)}

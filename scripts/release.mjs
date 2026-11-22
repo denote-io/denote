@@ -28,6 +28,41 @@ export function normalizeVersion(value) {
   return version;
 }
 
+const RELEASE_CANDIDATE_PATTERN = /^(?:rc\.)?([1-9]\d*)$/;
+const MAX_INSTALLER_FIELD = 65535;
+
+/**
+ * Returns the numeric WiX installer version for a prerelease or build, or null
+ * for a plain MAJOR.MINOR.PATCH release that Tauri maps itself. Build metadata
+ * does not affect version precedence, so the MSI version ignores it.
+ */
+export function windowsInstallerVersion(requestedVersion) {
+  const version = normalizeVersion(requestedVersion);
+  const [, major, minor, patch, prerelease, build] =
+    /^(\d+)\.(\d+)\.(\d+)(?:-([^+]+))?(?:\+(.+))?$/.exec(version);
+  if (prerelease === undefined && build === undefined) {
+    return null;
+  }
+  const fields = [major, minor, patch].map(Number);
+  if (prerelease !== undefined) {
+    const candidate = RELEASE_CANDIDATE_PATTERN.exec(prerelease);
+    if (!candidate) {
+      throw new Error(
+        `Windows MSI packages support only rc.N or numeric prerelease versions, not ${version}.`,
+      );
+    }
+    fields.push(Number(candidate[1]));
+  }
+  if (
+    fields[0] > 255 ||
+    fields[1] > 255 ||
+    fields.slice(2).some((field) => field > MAX_INSTALLER_FIELD)
+  ) {
+    throw new Error(`${version} cannot be represented as a Windows MSI version.`);
+  }
+  return fields.join(".");
+}
+
 export function readDenoteVersions(projectRoot) {
   const packageJson = readJson(projectRoot, VERSION_FILES.packageJson);
   const packageLock = readJson(projectRoot, VERSION_FILES.packageLock);
@@ -74,10 +109,19 @@ export function setDenoteVersion(
   }
 
   const currentVersion = currentVersions.values().next().value;
+  const installerVersion = windowsInstallerVersion(version);
   if (checkOnly) {
     if (currentVersion !== version) {
       throw new Error(
         `Tag version ${version} does not match Denote version ${currentVersion}.`,
+      );
+    }
+    const configuredInstallerVersion =
+      readJson(projectRoot, VERSION_FILES.tauriConfig).bundle?.windows?.wix
+        ?.version ?? null;
+    if (configuredInstallerVersion !== installerVersion) {
+      throw new Error(
+        `Windows installer version ${configuredInstallerVersion ?? "(derived)"} does not match ${installerVersion ?? "(derived)"} for ${version}.`,
       );
     }
     return { changed: false, currentVersion, version };
@@ -99,6 +143,7 @@ export function setDenoteVersion(
   packageLock.version = version;
   packageLock.packages[""].version = version;
   tauriConfig.version = version;
+  applyWindowsInstallerVersion(tauriConfig, installerVersion);
 
   const updates = new Map([
     [packageJsonPath, formatJson(packageJson)],
@@ -124,6 +169,22 @@ export function setDenoteVersion(
   const changed = writeChangedFiles(updates);
 
   return { changed, currentVersion, version };
+}
+
+function applyWindowsInstallerVersion(tauriConfig, installerVersion) {
+  if (installerVersion === null) {
+    const windows = tauriConfig.bundle?.windows;
+    if (windows?.wix && "version" in windows.wix) {
+      delete windows.wix.version;
+      if (Object.keys(windows.wix).length === 0) delete windows.wix;
+      if (Object.keys(windows).length === 0) delete tauriConfig.bundle.windows;
+    }
+    return;
+  }
+  tauriConfig.bundle ??= {};
+  tauriConfig.bundle.windows ??= {};
+  tauriConfig.bundle.windows.wix ??= {};
+  tauriConfig.bundle.windows.wix.version = installerVersion;
 }
 
 function readJson(projectRoot, relativePath) {

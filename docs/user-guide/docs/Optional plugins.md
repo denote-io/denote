@@ -143,7 +143,9 @@ telemetry API. The following network paths have separate purposes and controls:
 - Allowed external domains govern opening web links in your browser. Those
   approvals do not enable remote images.
 - Application updates contact the configured GitHub channel after startup and
-  verify downloaded updates before an explicit restart. Plugin downloads need
+  verify downloaded updates before an explicit restart. With **Include beta
+  releases** selected, Denote also lists recent releases through GitHub's API
+  to find the newest signed beta or stable release. Plugin downloads need
   package approval; optional permission-preserving automatic plugin updates
   require their own opt-in.
 - Git remotes, model downloads, and other explicit transfers follow their

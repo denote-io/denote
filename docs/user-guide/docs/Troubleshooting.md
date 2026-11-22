@@ -64,7 +64,9 @@ Open **About Denote** and choose **Check for updates**. An update that fails
 verification is not installed, and the current version keeps running. **The
 stable update channel is not configured with a trusted public key** means this
 build cannot update itself; download the latest release instead and verify its
-checksum. On macOS, see
+checksum. **GitHub returned HTTP 403 while listing Denote beta releases** usually
+means GitHub's request limit was reached; try again later, or clear **Include
+beta releases** to use the stable channel. On macOS, see
 [Opening an unsigned macOS build](<Getting started.md#opening-an-unsigned-macos-build>)
 when the system reports that the app is damaged.
 

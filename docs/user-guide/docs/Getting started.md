@@ -65,7 +65,16 @@ Denote downloads and verifies it in the background, then opens About. Choose
 **Restart to update** when you are ready; Denote saves open work, installs the
 prepared release, and restarts. Closing About defers installation. On macOS,
 Denote removes quarantine metadata only from that verified replacement.
-**Check for updates** remains available in About for a manual retry. If the
+**Check for updates** remains available in About for a manual retry.
+
+Select **Include beta releases** in About to also receive signed release
+candidates for testing. Betas can contain bugs, so keep backups of important
+vaults. Denote then lists recent official releases on GitHub to find the newest
+one, stable or beta, and verifies it like any stable update. Clear the checkbox
+to return to stable releases; Denote never installs an older version, so you
+keep the beta until a newer stable release ships. Linux `.rpm` installs cannot
+update from a beta to the final release of the same version inside Denote;
+reinstall that final package with `sudo rpm -U --oldpackage`. If the
 build has no trusted updater public key, About says the channel is not
 configured and does not make an update request.
 

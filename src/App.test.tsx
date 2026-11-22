@@ -639,12 +639,14 @@ describe("App initial file-tree expansion", () => {
     mockApi.checkForUpdate.mockResolvedValue(update);
     mockApi.downloadUpdate.mockImplementation(
       async (
+        channel: string,
         expectedVersion: string,
         onProgress: (progress: {
           event: "started";
           data: { contentLength: number | null };
         }) => void,
       ) => {
+        expect(channel).toBe("stable");
         expect(expectedVersion).toBe(update.version);
         onProgress({
           event: "started",
@@ -660,7 +662,7 @@ describe("App initial file-tree expansion", () => {
     await waitFor(() => {
       expect(mockApi.downloadUpdate).toHaveBeenCalledOnce();
     });
-    expect(mockApi.checkForUpdate).toHaveBeenCalledOnce();
+    expect(mockApi.checkForUpdate).toHaveBeenCalledExactlyOnceWith("stable");
     expect(mockApi.prepareExit).not.toHaveBeenCalled();
     expect(mockApi.installPreparedUpdate).not.toHaveBeenCalled();
     expect(mockApi.getLastVault.mock.invocationCallOrder[0]).toBeLessThan(
@@ -681,6 +683,36 @@ describe("App initial file-tree expansion", () => {
     expect(mockApi.downloadUpdate.mock.invocationCallOrder[0]).toBeLessThan(
       mockApi.installPreparedUpdate.mock.invocationCallOrder[0],
     );
+  });
+
+  it("checks and downloads beta releases only after the user opts in", async () => {
+    localStorage.setItem("denote-update-channel", "beta");
+    const update = { version: "1.0.0-rc.1", notes: null };
+    mockApi.getRuntimeInfo.mockResolvedValue({
+      operatingSystem: "linux",
+      architecture: "x86_64",
+      bundleType: "appimage",
+      updateChannel: "stable",
+      updaterConfigured: true,
+    });
+    mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([]));
+    mockApi.checkForUpdate.mockResolvedValue(update);
+    mockApi.downloadUpdate.mockResolvedValue(update);
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(mockApi.downloadUpdate).toHaveBeenCalledWith(
+        "beta",
+        update.version,
+        expect.any(Function),
+      );
+    });
+    expect(mockApi.checkForUpdate).toHaveBeenCalledExactlyOnceWith("beta");
+    expect(
+      await screen.findByRole("checkbox", { name: /Include beta releases/ }),
+    ).toBeChecked();
+    localStorage.removeItem("denote-update-channel");
   });
 
   it("opens a startup app link after restoring its current vault", async () => {

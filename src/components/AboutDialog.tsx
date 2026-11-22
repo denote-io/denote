@@ -1,6 +1,7 @@
 import { Bug, Info, RefreshCw, X } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { shortCommitHash, type BuildInfo } from "../lib/buildInfo";
+import type { UpdateChannel } from "../lib/updateChannel";
 import type { AvailableUpdate, RuntimeInfo } from "../types";
 
 export type UpdateUiState =
@@ -17,6 +18,8 @@ interface AboutDialogProps {
   buildInfo: BuildInfo;
   runtimeInfo: RuntimeInfo | null;
   updateState: UpdateUiState;
+  updateChannel: UpdateChannel;
+  onUpdateChannelChange: (channel: UpdateChannel) => void;
   onCheckForUpdates: () => void;
   onRestartUpdate: (update: AvailableUpdate) => void;
   onReportBug: () => void;
@@ -28,6 +31,8 @@ export function AboutDialog({
   buildInfo,
   runtimeInfo,
   updateState,
+  updateChannel,
+  onUpdateChannelChange,
   onCheckForUpdates,
   onRestartUpdate,
   onReportBug,
@@ -132,7 +137,7 @@ export function AboutDialog({
           {buildInfo.dirty ? " (dirty build)" : ""}
         </p>
         <div className="about-dialog__update" aria-live="polite">
-          <p>{updateStatusText(runtimeInfo, updateState)}</p>
+          <p>{updateStatusText(runtimeInfo, updateState, updateChannel)}</p>
           {updateState.status === "downloading" ? (
             <progress
               aria-label="Update download progress"
@@ -141,6 +146,28 @@ export function AboutDialog({
             />
           ) : null}
         </div>
+        <label className="editor-setting">
+          <input
+            type="checkbox"
+            checked={updateChannel === "beta"}
+            disabled={
+              !runtimeInfo?.updaterConfigured ||
+              updateState.status === "checking" ||
+              updateState.status === "downloading" ||
+              updateState.status === "installing"
+            }
+            onChange={(event) =>
+              onUpdateChannelChange(event.currentTarget.checked ? "beta" : "stable")
+            }
+          />
+          <span>
+            <strong>Include beta releases</strong>
+            <small>
+              Also offer signed release candidates for testing. They can contain
+              bugs. Turning this off never installs an older version.
+            </small>
+          </span>
+        </label>
       </div>
       <footer className="about-dialog__actions">
         <button type="button" className="secondary-button" onClick={onReportBug}>
@@ -183,6 +210,7 @@ export function AboutDialog({
 function updateStatusText(
   runtimeInfo: RuntimeInfo | null,
   state: UpdateUiState,
+  channel: UpdateChannel,
 ): string {
   if (!runtimeInfo) {
     return "Loading update channel information.";
@@ -194,11 +222,17 @@ function updateStatusText(
   }
   switch (state.status) {
     case "idle":
-      return "Denote checks for and downloads signed stable updates automatically after startup.";
+      return channel === "beta"
+        ? "Denote checks for and downloads signed stable and beta updates automatically after startup."
+        : "Denote checks for and downloads signed stable updates automatically after startup.";
     case "checking":
-      return "Checking the signed stable release metadata…";
+      return channel === "beta"
+        ? "Checking signed stable and beta release metadata…"
+        : "Checking the signed stable release metadata…";
     case "current":
-      return "This is the latest stable Denote release.";
+      return channel === "beta"
+        ? "This is the latest Denote release, including betas."
+        : "This is the latest stable Denote release.";
     case "downloading":
       return `Downloading and verifying Denote ${state.update.version}…`;
     case "ready":

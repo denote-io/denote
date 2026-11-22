@@ -23,6 +23,8 @@ describe("AboutDialog", () => {
           updaterConfigured: true,
         }}
         updateState={{ status: "idle" }}
+        updateChannel="stable"
+        onUpdateChannelChange={vi.fn()}
         onCheckForUpdates={vi.fn()}
         onRestartUpdate={vi.fn()}
         onReportBug={vi.fn()}
@@ -79,6 +81,8 @@ describe("AboutDialog", () => {
           status: "ready",
           update: { version: "1.2.4", notes: "Synthetic release notes." },
         }}
+        updateChannel="stable"
+        onUpdateChannelChange={vi.fn()}
         onCheckForUpdates={vi.fn()}
         onRestartUpdate={onRestartUpdate}
         onReportBug={onReportBug}
@@ -112,6 +116,8 @@ describe("AboutDialog", () => {
           updaterConfigured: false,
         }}
         updateState={{ status: "idle" }}
+        updateChannel="stable"
+        onUpdateChannelChange={vi.fn()}
         onCheckForUpdates={vi.fn()}
         onRestartUpdate={vi.fn()}
         onReportBug={vi.fn()}
@@ -127,5 +133,72 @@ describe("AboutDialog", () => {
     expect(
       screen.getByRole("button", { name: "Check for updates" }),
     ).toBeDisabled();
+    expect(
+      screen.getByRole("checkbox", { name: /Include beta releases/ }),
+    ).toBeDisabled();
+  });
+
+  it("opts into beta releases with a labeled checkbox and explains the channel", async () => {
+    const user = userEvent.setup();
+    const onUpdateChannelChange = vi.fn();
+    const props = {
+      open: true,
+      buildInfo: {
+        version: "1.2.3",
+        commitHash: "1234567890abcdef1234567890abcdef12345678",
+        dirty: false,
+      },
+      runtimeInfo: {
+        operatingSystem: "macos",
+        architecture: "aarch64",
+        bundleType: "app",
+        updateChannel: "stable",
+        updaterConfigured: true,
+      },
+      onUpdateChannelChange,
+      onCheckForUpdates: vi.fn(),
+      onRestartUpdate: vi.fn(),
+      onReportBug: vi.fn(),
+      onClose: vi.fn(),
+    };
+    const { rerender } = render(
+      <AboutDialog {...props} updateState={{ status: "current" }} updateChannel="stable" />,
+    );
+    const beta = screen.getByRole("checkbox", { name: /Include beta releases/ });
+    expect(beta).not.toBeChecked();
+    expect(screen.getByText("This is the latest stable Denote release.")).toBeInTheDocument();
+
+    await user.click(beta);
+    expect(onUpdateChannelChange).toHaveBeenLastCalledWith("beta");
+
+    rerender(
+      <AboutDialog
+        {...props}
+        runtimeInfo={{ ...props.runtimeInfo, updateChannel: "beta" }}
+        updateState={{ status: "current" }}
+        updateChannel="beta"
+      />,
+    );
+    expect(screen.getByRole("checkbox", { name: /Include beta releases/ })).toBeChecked();
+    expect(screen.getByText("beta")).toBeInTheDocument();
+    expect(
+      screen.getByText("This is the latest Denote release, including betas."),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("checkbox", { name: /Include beta releases/ }));
+    expect(onUpdateChannelChange).toHaveBeenLastCalledWith("stable");
+
+    rerender(
+      <AboutDialog
+        {...props}
+        updateState={{
+          status: "downloading",
+          update: { version: "1.3.0-rc.1", notes: null },
+          downloaded: 1,
+          total: 2,
+        }}
+        updateChannel="beta"
+      />,
+    );
+    expect(screen.getByRole("checkbox", { name: /Include beta releases/ })).toBeDisabled();
   });
 });

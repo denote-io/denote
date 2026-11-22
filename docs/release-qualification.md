@@ -139,6 +139,7 @@ or [Getting started](user-guide/docs/Getting%20started.md#about-updates-and-bug-
 | Path | Trigger | Control |
 | --- | --- | --- |
 | Application update check | Automatic after startup in configured release builds | Signed channel; installation waits for **Restart to update** |
+| Beta release listing on `api.github.com` | Update checks after the user selects **Include beta releases** | Off by default; only chooses which signed official manifest to read |
 | Plugin package download | Explicit enable or update | Permission approval; separate opt-in for automatic updates |
 | Speech model and runtime | Explicit download | Separate approval of model, license, origin, and size |
 | Remote Markdown images | Rendering an HTTP(S) image | **Load remote images**, off by default |
@@ -200,13 +201,19 @@ package, and result.
 12. Capture network traffic during startup and ordinary editing; only the
     disclosed update check appears.
 13. Uninstall with and without application-data removal; vault folders remain.
+14. Select **Include beta releases**, receive the current candidate in the app,
+    then clear it; Denote keeps the candidate and offers no older release.
 
 ## Release candidate
 
 After the qualification pull request merges and `main` CI passes, a maintainer
-runs `./scripts/release.sh 1.0.0-rc.1` from a clean `main`. The release workflow
+runs `./scripts/release.sh 1.0.0-rc.1` from a clean `main`. The script maps the
+candidate to the numeric Windows MSI version `1.0.0.1`. The release workflow
 publishes it as a GitHub prerelease, so the stable updater channel, which reads
-the latest full release, does not offer it.
+the latest full release, does not offer it. Testers opt in with **Include beta
+releases** in About; see
+[Prepare a release](development.md#prepare-a-release) for the RPM ordering
+limitation to resolve before the final release.
 
 From that candidate until v1.0.0, only release-blocking fixes are accepted:
 regressions, data loss, security, crashes, broken installation or update, and
