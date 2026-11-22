@@ -61,6 +61,7 @@ import type { ToolConfiguration, ToolContext, ToolEnvironment, ToolStartRequest,
 import type { PluginToolDocument } from "@denote/plugin-sdk";
 import type { CredentialRequest, CredentialResult } from "./credentials";
 import type { SpeechEngineStatus, SpeechProgress, SpeechTranscript } from "./speech";
+import type { UpdateChannel } from "./updateChannel";
 
 export const api = {
   getAppLockStatus: () => invoke<AppLockStatus>("get_app_lock_status"),
@@ -151,14 +152,17 @@ export const api = {
   deleteGitSigningPassphrase: (credentialId: string) =>
     invoke<void>("delete_git_signing_passphrase", { credentialId }),
   getRuntimeInfo: () => invoke<RuntimeInfo>("get_runtime_info"),
-  checkForUpdate: () => invoke<AvailableUpdate | null>("check_for_update"),
+  checkForUpdate: (channel: UpdateChannel) =>
+    invoke<AvailableUpdate | null>("check_for_update", { channel }),
   downloadUpdate: (
+    channel: UpdateChannel,
     expectedVersion: string,
     onProgress: (progress: UpdateProgress) => void,
   ) => {
     const progress = new Channel<UpdateProgress>();
     progress.onmessage = onProgress;
     return invoke<AvailableUpdate>("download_update", {
+      channel,
       expectedVersion,
       progress,
     });

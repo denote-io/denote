@@ -107,6 +107,19 @@ release version, package type, architecture, and `release-assets.json` contract.
 One verified update may be retained in memory. Starting a different download or
 discarding a failed flow removes it.
 
+The renderer passes only a `stable` or `beta` channel, stored in local
+preferences and defaulting to stable. Stable reads the fixed
+`releases/latest/download/latest.json` endpoint, which GitHub resolves only to
+full releases. Beta lists at most 30 releases from the same official
+repository through `api.github.com`, with a 2 MiB response limit and redirects
+confined to that host. It selects the highest semantic version among
+non-draft releases that publish `latest.json`, including prereleases and
+stable releases, and falls back to the stable endpoint when none qualify. The
+listing only chooses which tagged manifest to read: that endpoint must be an
+exact official `releases/download/v<version>/latest.json` path, and the manifest
+signature, greater-version comparison, artifact URL, and release contract are
+verified exactly as for stable. Leaving beta never selects an older release.
+
 When the user chooses restart, the renderer drains uploads, preferences,
 tab-session writes, and note saves through the workspace-operation barrier,
 then seals an unlocked encrypted vault. A save failure keeps the prepared

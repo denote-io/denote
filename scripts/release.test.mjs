@@ -15,6 +15,7 @@ import {
   normalizeVersion,
   readDenoteVersions,
   setDenoteVersion,
+  windowsInstallerVersion,
 } from "./release.mjs";
 
 const temporaryRoots = [];
@@ -49,6 +50,51 @@ describe("release version script", () => {
     );
     // Plugin archives are released from their own repositories.
     expect(readFileSync(join(root, "plugins", "catalog.json"), "utf8")).toBe(catalogBefore);
+  });
+
+  it("maps release candidates to numeric Windows installer versions and removes the override afterwards", () => {
+    const root = createFixture();
+    const config = () => JSON.parse(readFileSync(join(root, "src-tauri", "tauri.conf.json"), "utf8"));
+
+    setDenoteVersion(root, "v1.0.0-rc.2");
+    expect(config().version).toBe("1.0.0-rc.2");
+    expect(config().bundle.windows.wix.version).toBe("1.0.0.2");
+    expect(setDenoteVersion(root, "v1.0.0-rc.2", { checkOnly: true }).version).toBe("1.0.0-rc.2");
+
+    setDenoteVersion(root, "1.0.0");
+    expect(config().version).toBe("1.0.0");
+    expect(config().bundle).toEqual({ targets: "all" });
+    expect(setDenoteVersion(root, "v1.0.0", { checkOnly: true }).version).toBe("1.0.0");
+  });
+
+  it("ignores build metadata in the Windows installer version", () => {
+    expect(windowsInstallerVersion("1.4.0-rc.1+build.2")).toBe("1.4.0.1");
+    expect(windowsInstallerVersion("1.4.0-3")).toBe("1.4.0.3");
+    expect(windowsInstallerVersion("1.4.0+build.2")).toBe("1.4.0");
+    expect(windowsInstallerVersion("1.4.0")).toBeNull();
+  });
+
+  it("rejects prereleases that a Windows MSI cannot represent before writing", () => {
+    const root = createFixture();
+    const before = readFileSync(join(root, "src-tauri", "tauri.conf.json"), "utf8");
+
+    for (const version of ["1.0.0-beta.1", "1.0.0-rc.0", "1.0.0-rc.1.1", "1.0.0-rc.65536"]) {
+      expect(() => setDenoteVersion(root, version), version).toThrow("MSI");
+    }
+    expect(readFileSync(join(root, "src-tauri", "tauri.conf.json"), "utf8")).toBe(before);
+    expect(new Set(Object.values(readDenoteVersions(root)))).toEqual(new Set(["0.1.0"]));
+  });
+
+  it("checks that a release candidate tag carries its Windows installer version", () => {
+    const root = createFixture();
+    setDenoteVersion(root, "1.0.0-rc.1");
+    const path = join(root, "src-tauri", "tauri.conf.json");
+    const config = JSON.parse(readFileSync(path, "utf8"));
+    delete config.bundle.windows;
+    writeJson(path, config);
+
+    expect(() => setDenoteVersion(root, "v1.0.0-rc.1", { checkOnly: true }))
+      .toThrow("Windows installer version (derived) does not match 1.0.0.1");
   });
 
   it("checks a tag without changing files", () => {
@@ -234,6 +280,7 @@ function createFixture({
   writeJson(join(root, "src-tauri", "tauri.conf.json"), {
     productName: "Synthetic Denote",
     version: "0.1.0",
+    bundle: { targets: "all" },
   });
   writeJson(join(root, "plugins", "catalog.json"), [
     {

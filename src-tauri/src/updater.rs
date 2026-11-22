@@ -6,6 +6,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
 use reqwest::{Url, redirect::Policy};
+use semver::Version;
 use serde::{Deserialize, Serialize};
 #[cfg(target_os = "macos")]
 use tauri::Manager;
@@ -24,6 +25,32 @@ const MAX_REDIRECTS: usize = 5;
 // keeps updating before and after the GitHub transfer.
 const OFFICIAL_REPOSITORIES: [&str; 2] = ["mbianchidev/denote", "denote-io/denote"];
 const DEVELOPMENT_IDENTIFIER: &str = "dev.mbianchi.denote.development";
+const UPDATE_MANIFEST_NAME: &str = "latest.json";
+const RELEASE_LIST_PAGE_SIZE: usize = 30;
+const MAX_RELEASE_LIST_BYTES: usize = 2 * 1024 * 1024;
+
+/// The stable channel reads the latest full release. The opt-in beta channel
+/// also considers prereleases, then reads that release's signed manifest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UpdateChannel {
+    Stable,
+    Beta,
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubRelease {
+    tag_name: String,
+    #[serde(default)]
+    draft: bool,
+    #[serde(default)]
+    assets: Vec<GithubReleaseAsset>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubReleaseAsset {
+    name: String,
+}
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -103,8 +130,11 @@ pub fn get_runtime_info<R: Runtime>(app: AppHandle<R>) -> AppResult<RuntimeInfo>
 }
 
 #[tauri::command]
-pub async fn check_for_update<R: Runtime>(app: AppHandle<R>) -> AppResult<Option<AvailableUpdate>> {
-    let update = checked_update(&app).await?;
+pub async fn check_for_update<R: Runtime>(
+    app: AppHandle<R>,
+    channel: UpdateChannel,
+) -> AppResult<Option<AvailableUpdate>> {
+    let update = checked_update(&app, channel).await?;
     Ok(update.map(|update| AvailableUpdate {
         version: update.version,
         notes: update.body,
@@ -115,11 +145,12 @@ pub async fn check_for_update<R: Runtime>(app: AppHandle<R>) -> AppResult<Option
 pub async fn download_update<R: Runtime>(
     app: AppHandle<R>,
     manager: tauri::State<'_, UpdateManager>,
+    channel: UpdateChannel,
     expected_version: String,
     progress: Channel<UpdateProgress>,
 ) -> AppResult<AvailableUpdate> {
     discard_prepared(&manager)?;
-    let update = checked_update(&app)
+    let update = checked_update(&app, channel)
         .await?
         .ok_or_else(|| AppError::Update("No newer Denote release is available".to_string()))?;
     if update.version != expected_version {
@@ -210,7 +241,10 @@ pub fn install_prepared_update<R: Runtime>(
     app.restart();
 }
 
-async fn checked_update<R: Runtime>(app: &AppHandle<R>) -> AppResult<Option<Update>> {
+async fn checked_update<R: Runtime>(
+    app: &AppHandle<R>,
+    channel: UpdateChannel,
+) -> AppResult<Option<Update>> {
     let config = configuration()?;
     if app.config().identifier == DEVELOPMENT_IDENTIFIER {
         return Err(AppError::Update(
@@ -226,9 +260,13 @@ async fn checked_update<R: Runtime>(app: &AppHandle<R>) -> AppResult<Option<Upda
         .public_key
         .as_deref()
         .expect("enabled updater configuration has a public key");
-    let endpoint = Url::parse(&config.endpoint)
+    let stable_endpoint = Url::parse(&config.endpoint)
         .map_err(|error| AppError::Update(format!("Invalid update endpoint: {error}")))?;
-    validate_endpoint(&endpoint)?;
+    validate_endpoint(&stable_endpoint)?;
+    let endpoint = match channel {
+        UpdateChannel::Stable => stable_endpoint,
+        UpdateChannel::Beta => beta_endpoint(&stable_endpoint).await?,
+    };
     let updater = app
         .updater_builder()
         .pubkey(public_key)
@@ -243,6 +281,119 @@ async fn checked_update<R: Runtime>(app: &AppHandle<R>) -> AppResult<Option<Upda
         validate_update_download(update)?;
     }
     Ok(update)
+}
+
+/// Selects the newest published official release, including prereleases. The
+/// GitHub listing only chooses which signed manifest to read; the manifest
+/// signature, version comparison, and download URL are verified as for stable.
+async fn beta_endpoint(stable_endpoint: &Url) -> AppResult<Url> {
+    let repository = official_repository(stable_endpoint)?;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .redirect(github_api_redirect_policy())
+        .user_agent(format!("Denote/{}", env!("CARGO_PKG_VERSION")))
+        .build()
+        .map_err(update_error)?;
+    let mut response = client
+        .get(format!(
+            "https://api.github.com/repos/{repository}/releases?per_page={RELEASE_LIST_PAGE_SIZE}"
+        ))
+        .header("Accept", "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", "2022-11-28")
+        .send()
+        .await
+        .map_err(|error| {
+            AppError::Update(format!("Unable to list Denote beta releases: {error}"))
+        })?;
+    if !response.status().is_success() {
+        return Err(AppError::Update(format!(
+            "GitHub returned HTTP {} while listing Denote beta releases",
+            response.status().as_u16()
+        )));
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|error| {
+        AppError::Update(format!("Unable to read Denote beta releases: {error}"))
+    })? {
+        if body.len() + chunk.len() > MAX_RELEASE_LIST_BYTES {
+            return Err(AppError::Update(
+                "The Denote beta release list exceeded its size limit".to_string(),
+            ));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    let releases: Vec<GithubRelease> = serde_json::from_slice(&body)
+        .map_err(|error| AppError::Update(format!("Invalid Denote beta release list: {error}")))?;
+    match newest_release_tag(&releases) {
+        Some(tag) => tagged_endpoint(repository, &tag),
+        None => Ok(stable_endpoint.clone()),
+    }
+}
+
+fn newest_release_tag(releases: &[GithubRelease]) -> Option<String> {
+    releases
+        .iter()
+        .filter(|release| {
+            !release.draft
+                && release
+                    .assets
+                    .iter()
+                    .any(|asset| asset.name == UPDATE_MANIFEST_NAME)
+        })
+        .filter_map(|release| {
+            let version = Version::parse(release.tag_name.strip_prefix('v')?).ok()?;
+            Some((version, release.tag_name.clone()))
+        })
+        .max_by(|left, right| left.0.cmp(&right.0))
+        .map(|(_, tag)| tag)
+}
+
+fn tagged_endpoint(repository: &str, tag: &str) -> AppResult<Url> {
+    let endpoint = Url::parse(&format!(
+        "https://github.com/{repository}/releases/download/{tag}/{UPDATE_MANIFEST_NAME}"
+    ))
+    .map_err(|error| AppError::Update(format!("Invalid beta update endpoint: {error}")))?;
+    validate_tagged_endpoint(&endpoint)?;
+    Ok(endpoint)
+}
+
+fn official_repository(endpoint: &Url) -> AppResult<&'static str> {
+    OFFICIAL_REPOSITORIES
+        .into_iter()
+        .find(|repository| {
+            endpoint.path() == format!("/{repository}/releases/latest/download/latest.json")
+        })
+        .ok_or_else(|| {
+            AppError::Update(
+                "The update endpoint must be the official Denote GitHub Release endpoint"
+                    .to_string(),
+            )
+        })
+}
+
+fn validate_tagged_endpoint(url: &Url) -> AppResult<()> {
+    let tagged_version = url
+        .path_segments()
+        .and_then(|segments| segments.rev().nth(1))
+        .and_then(|tag| tag.strip_prefix('v'))
+        .and_then(|version| Version::parse(version).ok());
+    let valid = url.scheme() == "https"
+        && url.host_str() == Some("github.com")
+        && url.query().is_none()
+        && url.fragment().is_none()
+        && tagged_version.is_some_and(|version| {
+            is_official_release_path(
+                url.path(),
+                &format!("releases/download/v{version}/{UPDATE_MANIFEST_NAME}"),
+            )
+        });
+    if !valid {
+        return Err(AppError::Update(
+            "The beta update endpoint must be an official Denote GitHub Release manifest"
+                .to_string(),
+        ));
+    }
+    Ok(())
 }
 
 fn configuration() -> AppResult<UpdaterConfiguration> {
@@ -377,6 +528,19 @@ fn github_redirect_policy() -> Policy {
                 | "github-releases.githubusercontent.com",
             ) if attempt.url().scheme() == "https" => attempt.follow(),
             _ => attempt.error("update redirect left the GitHub release host allowlist"),
+        }
+    })
+}
+
+fn github_api_redirect_policy() -> Policy {
+    Policy::custom(|attempt| {
+        if attempt.previous().len() >= MAX_REDIRECTS {
+            return attempt.error("too many GitHub API redirects");
+        }
+        if attempt.url().scheme() == "https" && attempt.url().host_str() == Some("api.github.com") {
+            attempt.follow()
+        } else {
+            attempt.error("release list redirect left api.github.com")
         }
     })
 }
@@ -539,6 +703,90 @@ mod tests {
         let config = configuration().expect("configuration");
         assert!(configuration_is_enabled(&config));
         assert!(config.public_key.is_some_and(|key| !key.trim().is_empty()));
+    }
+
+    #[test]
+    fn beta_channel_selects_the_newest_published_release_with_a_manifest() {
+        let release = |tag: &str, draft: bool, manifest: bool| GithubRelease {
+            tag_name: tag.to_string(),
+            draft,
+            assets: if manifest {
+                vec![GithubReleaseAsset {
+                    name: UPDATE_MANIFEST_NAME.to_string(),
+                }]
+            } else {
+                vec![GithubReleaseAsset {
+                    name: "Denote_9.0.0_aarch64.dmg".to_string(),
+                }]
+            },
+        };
+        let releases = [
+            release("v0.14.3", false, true),
+            release("v1.0.0-rc.1", false, true),
+            release("v1.0.0-rc.2", false, true),
+            release("v1.0.0-rc.3", true, true),
+            release("v2.0.0", false, false),
+            release("nightly", false, true),
+            release("v1.0", false, true),
+        ];
+        assert_eq!(
+            newest_release_tag(&releases).as_deref(),
+            Some("v1.0.0-rc.2")
+        );
+
+        let with_final = [
+            release("v1.0.0-rc.2", false, true),
+            release("v1.0.0", false, true),
+        ];
+        assert_eq!(newest_release_tag(&with_final).as_deref(), Some("v1.0.0"));
+        assert_eq!(newest_release_tag(&[]), None);
+    }
+
+    #[test]
+    fn beta_endpoints_are_exact_official_release_manifests() {
+        for repository in OFFICIAL_REPOSITORIES {
+            let stable = Url::parse(&format!(
+                "https://github.com/{repository}/releases/latest/download/latest.json"
+            ))
+            .expect("url");
+            assert_eq!(official_repository(&stable).expect("official"), repository);
+            assert_eq!(
+                tagged_endpoint(repository, "v1.0.0-rc.1")
+                    .expect("tagged endpoint")
+                    .as_str(),
+                format!(
+                    "https://github.com/{repository}/releases/download/v1.0.0-rc.1/latest.json"
+                )
+            );
+        }
+        for rejected in [
+            "https://github.com/denote-io/denote/releases/download/v1.0.0-rc.1/other.json",
+            "https://github.com/denote-io/denote/releases/download/1.0.0-rc.1/latest.json",
+            "https://github.com/denote-io/denote/releases/download/vnext/latest.json",
+            "https://github.com/synthetic-owner/denote/releases/download/v1.0.0/latest.json",
+            "https://example.test/denote-io/denote/releases/download/v1.0.0/latest.json",
+            "http://github.com/denote-io/denote/releases/download/v1.0.0/latest.json",
+            "https://github.com/denote-io/denote/releases/download/v1.0.0/latest.json?x=1",
+        ] {
+            assert!(
+                validate_tagged_endpoint(&Url::parse(rejected).expect("url")).is_err(),
+                "{rejected}"
+            );
+        }
+        assert!(tagged_endpoint("synthetic-owner/denote", "v1.0.0").is_err());
+    }
+
+    #[test]
+    fn update_channels_accept_only_stable_and_beta() {
+        assert_eq!(
+            serde_json::from_str::<UpdateChannel>("\"stable\"").expect("stable"),
+            UpdateChannel::Stable
+        );
+        assert_eq!(
+            serde_json::from_str::<UpdateChannel>("\"beta\"").expect("beta"),
+            UpdateChannel::Beta
+        );
+        assert!(serde_json::from_str::<UpdateChannel>("\"nightly\"").is_err());
     }
 
     #[test]

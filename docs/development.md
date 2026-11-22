@@ -2544,6 +2544,22 @@ matching annotated tag. Both messages are generated automatically as
 enables tag signing. The commit stays unsigned; the tag retains the configured
 signing policy.
 
+Release candidates use `rc.N`, for example `./scripts/release.sh 1.0.0-rc.1`.
+Windows MSI versions must be numeric, so the release script maps `X.Y.Z-rc.N`
+and numeric `X.Y.Z-N` prereleases to the WiX version `X.Y.Z.N` in
+`bundle.windows.wix.version` and removes that override for the final `X.Y.Z`.
+It ignores build metadata and refuses other prerelease labels before writing
+any file. Windows Installer ignores the fourth field when it compares versions,
+and Tauri's MSI permits same-version upgrades, so the final release replaces
+its candidates. The release workflow marks any version with a prerelease as a
+GitHub prerelease, so `releases/latest` and the stable updater channel never
+select it; only users who choose **Include beta releases** receive it in the
+app. Debian and RPM version ordering places `X.Y.Z-rc.N` after `X.Y.Z`:
+`dpkg -i` still installs the final release, but an in-app `rpm -U` update from
+a candidate to the same final version is refused. Decide the RPM epoch or
+document a manual `rpm -U --oldpackage` reinstall before publishing that final
+release.
+
 Tags must use semantic versions and point to a commit on `main`. The release
 workflow validates the tag against every version source and builds every
 platform before it creates a GitHub Release. Every release dependency install
