@@ -1480,6 +1480,15 @@ release line. Breaking changes require a new API major, a migration guide and a
 Denote major release after the full 1.x support window. No existing permission
 may silently gain broader access.
 
+Compatibility bounds are semantic versions compared with the running Denote
+version. `minimumDenoteVersion` is inclusive and `maximumDenoteVersion` is
+exclusive. Prerelease versions sort before their release, so a plugin that
+requires `1.0.0` does not run on `1.0.0-rc.1`. Catalog API 1 plugins declare a
+`2.0.0` maximum or none, so every 1.x host accepts them. Denote never downloads
+an incompatible catalog entry. An installed package that becomes incompatible
+is disabled and removed at startup; its approvals and settings remain for a
+compatible reinstall.
+
 From the v1.0 release candidate until v1.0.0, only release-blocking fixes are
 accepted. New capabilities, permission expansion and unrelated refactors are
 not candidate fixes. The freeze does not imply that manual accessibility,

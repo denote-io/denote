@@ -86,9 +86,20 @@ npm run check:secrets
 npm run build
 npm run fetch:plugins
 npm exec --no -- playwright test benchmarks/accessibility.perf.ts benchmarks/pluginLifecycle.perf.ts
+cargo test --manifest-path src-tauri/Cargo.toml --locked --lib plugins::failure_mode_tests
 cargo test --manifest-path src-tauri/Cargo.toml --locked --lib \
   staged_catalog_packages_complete_native_lifecycle -- --ignored
 ```
+
+[v1.0.0 release qualification](release-qualification.md) maps each roadmap
+gate to these checks, the per-plugin encrypted-vault contract, the external
+connection inventory, and the manual platform checklist. `failure_mode_tests`
+covers incompatible versions, corrupted archives, interrupted
+install/update/removal residue, and rollback without a previous package. The
+plugin lifecycle browser gate also repeats enable/disable for representative
+plugins and fails if a worker, message port, closure, map, promise, listener,
+or DOM node survives the cycles. Its heap budget is coarser because V8
+compiled code and bounded browser performance buffers legitimately grow.
 
 The history scan redacts matched values completely. `.gitleaksignore` contains
 only individually reviewed historical fingerprints for synthetic PDF bytes,
