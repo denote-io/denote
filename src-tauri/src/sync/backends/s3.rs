@@ -614,7 +614,8 @@ fn xml_texts(body: &[u8]) -> Option<Vec<(Vec<String>, String)>> {
                 }),
                 Err(_) => return None,
             },
-            Event::Eof => break,
+            Event::Eof if stack.is_empty() => break,
+            Event::Eof => return None,
             _ => {}
         }
     }

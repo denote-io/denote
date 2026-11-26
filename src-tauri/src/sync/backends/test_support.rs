@@ -5,6 +5,7 @@
 use crate::sync::backend::{Backend, PutMode, PutOutcome};
 
 use std::{
+    collections::BTreeSet,
     io::{BufRead, BufReader, Read, Write},
     net::{TcpListener, TcpStream},
     sync::{
@@ -176,11 +177,13 @@ fn serve(stream: TcpStream, handler: &impl Fn(&MockRequest) -> MockResponse) {
     let _ = stream.flush();
 }
 
-/// Minimal conformance checks every transport passes against an empty store.
+/// Conformance checks every transport passes against an empty store. They
+/// mirror the engine's `backend_tests::conformance` and add prefix edge cases.
 pub(crate) fn conformance(backend: &dyn Backend) {
     backend.refresh().unwrap();
     assert_eq!(backend.get("repository.json").unwrap(), None);
     assert!(backend.list("").unwrap().is_empty());
+    backend.delete("objects/aa/missing").unwrap();
     assert_eq!(
         backend
             .put("repository.json", b"first", PutMode::CreateOnly)
@@ -246,8 +249,39 @@ pub(crate) fn conformance(backend: &dyn Backend) {
     backend.delete(keys[1]).unwrap();
     assert_eq!(backend.get(keys[1]).unwrap(), None);
     assert_eq!(backend.list("heads/").unwrap().len(), 2);
-    assert!(backend.get("../escape").is_err());
-    assert!(backend.put("Bad Key", b"x", PutMode::Overwrite).is_err());
+
+    let empty = "heads/00000000000000000000000000000000/00000000000000000001";
+    backend.put(empty, b"", PutMode::CreateOnly).unwrap();
+    assert_eq!(backend.get(empty).unwrap().as_deref(), Some(&b""[..]));
+    let binary: Vec<u8> = (0..=255u8).cycle().take(70_000).collect();
+    let mut expected = BTreeSet::from([object.clone()]);
+    for index in 0..40u32 {
+        let id = format!("{index:02x}{}", "e".repeat(62));
+        let key = format!("objects/{}/{id}", &id[..2]);
+        backend.put(&key, &binary, PutMode::CreateOnly).unwrap();
+        expected.insert(key);
+    }
+    backend.flush().unwrap();
+    let listed: BTreeSet<String> = backend.list("objects/").unwrap().into_iter().collect();
+    assert_eq!(listed, expected);
+    let first = expected.iter().next().unwrap().clone();
+    assert_eq!(
+        backend.get(&first).unwrap().as_deref(),
+        Some(binary.as_slice())
+    );
+    assert_eq!(backend.list("retired/").unwrap().len(), 1);
+    backend.delete(&first).unwrap();
+    assert_eq!(backend.get(&first).unwrap(), None);
+    assert!(!backend.list("objects/").unwrap().contains(&first));
+
+    for invalid in ["../escape", "/absolute", "Upper/case", "a//b", "Bad Key"] {
+        assert!(backend.get(invalid).is_err(), "{invalid}");
+        assert!(
+            backend.put(invalid, b"x", PutMode::Overwrite).is_err(),
+            "{invalid}"
+        );
+        assert!(backend.delete(invalid).is_err(), "{invalid}");
+    }
     assert!(backend.list("../").is_err());
     backend.flush().unwrap();
 }

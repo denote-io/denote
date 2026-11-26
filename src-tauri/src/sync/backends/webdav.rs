@@ -325,11 +325,15 @@ fn parse_multistatus(body: &[u8]) -> AppResult<Vec<(String, bool)>> {
     let mut response_collection = false;
     let mut propstat_collection = false;
     let mut propstat_status = String::new();
+    let mut saw_multistatus = false;
     loop {
         let event = reader.read_event().map_err(|_| invalid())?;
         match event {
             Event::Start(element) => {
                 let name = local_name(element.local_name().as_ref());
+                if stack.is_empty() {
+                    saw_multistatus |= name == "multistatus";
+                }
                 match name.as_str() {
                     "response" => {
                         href.clear();
@@ -403,7 +407,8 @@ fn parse_multistatus(body: &[u8]) -> AppResult<Vec<(String, bool)>> {
                 };
                 append_text(&stack, &mut href, &mut propstat_status, &resolved);
             }
-            Event::Eof => break,
+            Event::Eof if stack.is_empty() && saw_multistatus => break,
+            Event::Eof => return Err(invalid()),
             _ => {}
         }
     }
@@ -635,6 +640,8 @@ mod tests {
             ]
         );
         assert!(parse_multistatus(b"<multistatus><response>").is_err());
+        assert!(parse_multistatus(b"<html><body>Login</body></html>").is_err());
+        assert!(parse_multistatus(b"").is_err());
     }
 
     #[test]

@@ -84,17 +84,15 @@ impl HttpClient {
         self
     }
 
-    pub(crate) fn service(&self) -> &'static str {
-        self.service
-    }
-
     pub(crate) fn client(&self) -> &Client {
         &self.client
     }
 
     /// Sends `request`, retrying 408, 429, and 5xx responses and connection
     /// failures, and reads at most `limit` bytes of a successful body. Any
-    /// final status is returned to the caller, which owns its meaning.
+    /// final status is returned to the caller, which owns its meaning. A
+    /// request that times out after connecting is not retried, so one slow
+    /// transfer cannot hold a sync cycle for several request timeouts.
     pub(crate) fn send(&self, request: RequestBuilder, limit: u64) -> AppResult<HttpResponse> {
         let probe = request.try_clone().ok_or_else(|| {
             AppError::State(format!("{} request body cannot be retried", self.service))
@@ -155,9 +153,7 @@ impl HttpClient {
                         body,
                     });
                 }
-                Err(error)
-                    if (error.is_connect() || error.is_timeout()) && attempt < MAX_ATTEMPTS =>
-                {
+                Err(error) if error.is_connect() && attempt < MAX_ATTEMPTS => {
                     thread::sleep(self.backoff(attempt));
                 }
                 Err(error) => return Err(self.transport_error(error)),

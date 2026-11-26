@@ -760,7 +760,8 @@ mod tests {
             second.get("repository.json").unwrap().as_deref(),
             Some(&b"third"[..])
         );
-        assert_eq!(second.list("heads/").unwrap().len(), 2);
+        assert_eq!(second.list("heads/").unwrap().len(), 3);
+        assert_eq!(second.list("objects/").unwrap().len(), 40);
     }
 
     #[test]

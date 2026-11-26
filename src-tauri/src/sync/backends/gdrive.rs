@@ -31,7 +31,7 @@ use serde::Deserialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::{
     error::{AppError, AppResult},
@@ -58,6 +58,9 @@ const MAX_SECRET_BYTES: usize = 4096;
 const TOKEN_EXPIRY_MARGIN: Duration = Duration::from_secs(60);
 const SIGN_IN_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const MAX_REDIRECT_REQUEST_BYTES: usize = 16 * 1024;
+/// Unrelated loopback requests (favicons, stray local clients) tolerated
+/// before the sign-in gives up.
+const MAX_IGNORED_REDIRECTS: usize = 32;
 
 /// OAuth and API endpoints, injectable for tests.
 #[derive(Clone, Debug)]
@@ -155,56 +158,67 @@ impl GoogleClient {
 }
 
 /// The result of a successful sign-in. The refresh token belongs in the
-/// operating-system credential store only.
-#[derive(Clone)]
+/// operating-system credential store only. `client_id` is the user's own
+/// OAuth client, or `None` for the build-time default; pass it back to
+/// [`GoogleClient::resolve`] when opening the backend.
 pub(crate) struct GoogleConnection {
-    pub(crate) refresh_token: String,
     pub(crate) account_label: String,
-    pub(crate) client: GoogleClient,
+    pub(crate) refresh_token: String,
+    pub(crate) client_id: Option<String>,
 }
 
 impl fmt::Debug for GoogleConnection {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("GoogleConnection")
-            .field("refresh_token", &"<redacted>")
             .field("account_label", &self.account_label)
-            .field("client", &self.client)
+            .field("refresh_token", &"<redacted>")
+            .field("client_id", &self.client_id)
             .finish()
+    }
+}
+
+impl Drop for GoogleConnection {
+    fn drop(&mut self) {
+        self.refresh_token.zeroize();
     }
 }
 
 /// Runs the installed-app OAuth flow: opens the consent page with
 /// `open_url`, waits up to five minutes for the loopback redirect, and
-/// exchanges the code for a refresh token.
+/// exchanges the code for a refresh token. `client_id` overrides the
+/// build-time OAuth client.
+#[allow(dead_code)] // Wired by the sync command layer.
 pub(crate) fn connect(
     client_id: Option<String>,
     open_url: &dyn Fn(&str) -> AppResult<()>,
 ) -> AppResult<GoogleConnection> {
-    connect_with_client(GoogleClient::resolve(client_id)?, open_url)
-}
-
-/// [`connect`] with an explicit client, for a user-supplied ID and secret.
-pub(crate) fn connect_with_client(
-    client: GoogleClient,
-    open_url: &dyn Fn(&str) -> AppResult<()>,
-) -> AppResult<GoogleConnection> {
-    connect_with(
+    let override_id = client_id
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty());
+    let client = GoogleClient::resolve(override_id.clone())?;
+    let (account_label, refresh_token) = connect_with(
         &GoogleEndpoints::google(),
         &HttpClient::new(SERVICE)?,
-        client,
+        &client,
         open_url,
         SIGN_IN_TIMEOUT,
-    )
+    )?;
+    Ok(GoogleConnection {
+        account_label,
+        refresh_token: refresh_token.as_str().to_string(),
+        client_id: override_id,
+    })
 }
 
+/// Returns the account label and the refresh token.
 fn connect_with(
     endpoints: &GoogleEndpoints,
     http: &HttpClient,
-    client: GoogleClient,
+    client: &GoogleClient,
     open_url: &dyn Fn(&str) -> AppResult<()>,
     timeout: Duration,
-) -> AppResult<GoogleConnection> {
+) -> AppResult<(String, Zeroizing<String>)> {
     client.validate()?;
     let verifier = Zeroizing::new(random_token(64)?);
     let state = random_token(32)?;
@@ -239,12 +253,12 @@ fn connect_with(
         ("redirect_uri", redirect_uri.as_str()),
     ]);
     let token = token_request(http, endpoints, &fields)?;
-    let refresh_token = token.refresh_token.clone().ok_or_else(|| {
+    let refresh_token = Zeroizing::new(token.refresh_token.clone().ok_or_else(|| {
         AppError::State(
             "Google did not return a refresh token. Remove Denote's access in your Google account settings and connect again."
                 .to_string(),
         )
-    })?;
+    })?);
     let access_token = Zeroizing::new(token.access_token.clone());
     let about_url = api_url(
         &endpoints.api,
@@ -273,11 +287,7 @@ fn connect_with(
                 .collect()
         })
         .unwrap_or_else(|| "Google account".to_string());
-    Ok(GoogleConnection {
-        refresh_token,
-        account_label,
-        client,
-    })
+    Ok((account_label, refresh_token))
 }
 
 fn random_token(bytes: usize) -> AppResult<String> {
@@ -292,14 +302,21 @@ fn random_token(bytes: usize) -> AppResult<String> {
 /// ignored, so a stray local request cannot end the sign-in.
 fn await_redirect(listener: &TcpListener, state: &str, deadline: Instant) -> AppResult<String> {
     listener.set_nonblocking(true)?;
+    let mut ignored = 0;
     loop {
         match listener.accept() {
             Ok((stream, address)) => {
-                if !address.ip().is_loopback() {
-                    continue;
-                }
-                if let Some(result) = handle_redirect(stream, state) {
+                if address.ip().is_loopback()
+                    && let Some(result) = handle_redirect(stream, state)
+                {
                     return result;
+                }
+                ignored += 1;
+                if ignored > MAX_IGNORED_REDIRECTS {
+                    return Err(AppError::State(
+                        "Google sign-in received too many unexpected requests. Try connecting again."
+                            .to_string(),
+                    ));
                 }
             }
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
@@ -418,7 +435,7 @@ fn respond(mut stream: TcpStream, status: u16, message: &str) {
     let _ = stream.flush();
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Zeroize, ZeroizeOnDrop)]
 struct TokenResponse {
     access_token: String,
     expires_in: Option<u64>,
@@ -428,6 +445,7 @@ struct TokenResponse {
 #[derive(Deserialize)]
 struct OAuthError {
     error: Option<String>,
+    error_description: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -497,9 +515,18 @@ fn token_request(
     if response.status.is_success() {
         return parse_json(&response);
     }
-    let code = serde_json::from_slice::<OAuthError>(&response.body)
-        .ok()
-        .and_then(|error| error.error);
+    let (code, description) = serde_json::from_slice::<OAuthError>(&response.body)
+        .map(|error| (error.error, error.error_description))
+        .unwrap_or_default();
+    if description
+        .as_deref()
+        .is_some_and(|text| text.contains("client_secret"))
+    {
+        return Err(AppError::State(
+            "This Google OAuth client requires a client secret. Use a client ID that does not need one, or Denote's built-in client."
+                .to_string(),
+        ));
+    }
     Err(match code.as_deref() {
         Some("invalid_grant") => AppError::State(
             "Google Drive access was revoked or has expired. Reconnect Google Drive in Sync settings."
@@ -578,6 +605,9 @@ pub(crate) struct GoogleDriveBackend {
 }
 
 impl GoogleDriveBackend {
+    /// Resolve `client_id` and `client_secret` with [`GoogleClient::resolve`]
+    /// from the connection's stored client override.
+    #[allow(dead_code)] // Wired by the backend factory.
     pub(crate) fn new(
         refresh_token: &str,
         client_id: &str,
@@ -663,7 +693,7 @@ impl GoogleDriveBackend {
             ("refresh_token", self.refresh_token.as_str()),
         ]);
         let response = token_request(&self.http, &self.endpoints, &fields)?;
-        let token = Zeroizing::new(response.access_token);
+        let token = Zeroizing::new(response.access_token.clone());
         let lifetime = Duration::from_secs(response.expires_in.unwrap_or(3600).clamp(60, 86_400));
         *access = Some(AccessToken {
             token: token.clone(),
@@ -770,14 +800,24 @@ impl GoogleDriveBackend {
                 return Err(drive_error("create the sync folder", &response));
             }
             let created: DriveFile = parse_json(&response)?;
+            validate_file_id(&created.id)?;
             // Another device may have created the folder at the same time.
             folders = self.query_files(&query, fields)?;
-            if folders.is_empty() {
-                folders.push(created);
+            if !folders.iter().any(|folder| folder.id == created.id) {
+                folders.push(created.clone());
+            }
+            order_candidates(&mut folders);
+            if folders[0].id != created.id {
+                // Best effort: an empty duplicate folder is harmless.
+                let _ = self.delete_file(&created.id);
             }
         }
         order_candidates(&mut folders);
-        let id = folders[0].id.clone();
+        let Some(id) = folders.first().map(|folder| folder.id.clone()) else {
+            return Err(AppError::State(
+                "Google Drive did not return the sync folder".to_string(),
+            ));
+        };
         validate_file_id(&id)?;
         *cached = Some(id.clone());
         Ok(id)
@@ -1504,16 +1544,21 @@ mod tests {
             });
             Ok(())
         };
-        let connection = connect_with(
+        let (account_label, refresh_token) = connect_with(
             &endpoints,
             &test_http(),
-            client(),
+            &client(),
             &opened,
             Duration::from_secs(20),
         )
         .unwrap();
-        assert_eq!(connection.refresh_token, "refresh-synthetic");
-        assert_eq!(connection.account_label, "user@example.test");
+        assert_eq!(refresh_token.as_str(), "refresh-synthetic");
+        assert_eq!(account_label, "user@example.test");
+        let connection = GoogleConnection {
+            account_label,
+            refresh_token: refresh_token.to_string(),
+            client_id: None,
+        };
         assert!(!format!("{connection:?}").contains("refresh-synthetic"));
     }
 
@@ -1540,7 +1585,7 @@ mod tests {
         let error = connect_with(
             &endpoints,
             &test_http(),
-            client(),
+            &client(),
             &denied,
             Duration::from_secs(20),
         )
@@ -1550,7 +1595,7 @@ mod tests {
         let error = connect_with(
             &endpoints,
             &test_http(),
-            client(),
+            &client(),
             &ignored,
             Duration::from_millis(200),
         )
