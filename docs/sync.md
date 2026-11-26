@@ -27,10 +27,11 @@ whole application through one separate store and never reads or writes any
 | Files of each enrolled vault | Yes | Byte-exact. Encrypted vaults replicate ciphertext. |
 | `.denote/encryption.json` | Yes, as control state | Concurrent changes pause that vault for an explicit choice. |
 | `.denote/note-comments.json`, `.denote/credentials.dncred` | Yes, whole-file | Concurrent changes keep both versions. |
-| `.denote/trash/`, locks, journals, temporary files | No | Device-local operational state. |
+| `.denote/trash/`, `.denote/locks/`, speech journals, temporary files, OS junk (`.DS_Store`, `._*`, `Thumbs.db`, `desktop.ini`, Office lock files) | No | Device-local operational state. |
 | `.git` directories or files at any depth | No | Use `denote.git` for repository history. |
 | Symbolic links, sockets, devices | No | Never followed or created. |
-| Vault name, Markdown view mode, tab-restore flag, welcome page | Yes | Stored per vault sync ID. |
+| Vault name | For display | Each snapshot lists its writer's vault names so a joining device can offer them. A vault's name is its local folder name, so it is never applied. |
+| Markdown view mode, tab-restore flag, welcome page | Yes | Stored per vault sync ID. |
 | Bookmarks, file ordering and pins, tag colors, explicit project roots | Yes | Keyed by vault sync ID and relative path. |
 | Revision history | Yes | Append-only set union; encrypted rows stay encrypted. |
 | Theme, editor display, default Markdown view, dotfile visibility, activity-rail layout, dictation shortcut | Yes | Portable renderer preferences allowlist. |
@@ -44,7 +45,14 @@ whole application through one separate store and never reads or writes any
 | Keychain secrets, Git signing passphrases, sync credentials | No | Never leave the operating-system credential store. |
 
 Disabled or unregistered plugins keep their synced settings and state in the
-local sync index; nothing is applied until the plugin is installed locally.
+local sync index; nothing is applied until the plugin is enabled locally.
+Plugin settings are applied only when the local plugin uses the same settings
+schema version; otherwise they wait for the plugin to be updated.
+
+Values equal to their default are treated as absent, so a freshly installed
+device never outvotes a configured one: vault preferences that match Denote's
+defaults and plugin settings that match the manifest default publish nothing,
+and a deletion resets the value to its default.
 
 ## Remote layout
 
@@ -60,7 +68,8 @@ Every backend is used as a flat key-value store under the prefix
 
 `<id>` is 64 lowercase hex characters, `<hh>` its first two. `<writer>` is a
 32-hex-character random writer ID. `<generation>` is a 20-digit zero-padded
-decimal counter.
+decimal counter. A retirement record is the sealed JSON
+`{ writer, retiredBy, retiredAt }`.
 
 ### Backend contract
 
@@ -133,14 +142,18 @@ vault's repository.
   its future publications from being merged; it does not revoke access.
 - The passphrase is never stored remotely. **Remember on this device** stores
   the unwrapped master key in the operating-system credential store under the
-  reserved host namespace `host-sync.`; plugins cannot read it.
+  reserved host namespace `host-sync.` (`host-sync.master-key`, and the
+  transport credentials as `host-sync.backend`); plugins cannot read it. A
+  master key unlocked without **Remember** stays in memory until Denote quits
+  or sync is disconnected. Sync passphrases need at least 12 characters.
 
 ## Snapshot model
 
 A generation snapshot is the full state a writer has observed and accepted:
 
 ```text
-Snapshot { repository, writer, generation, created_at, app_version,
+Snapshot { format, repository, writer, generation, created_at, app_version,
+           device_name, vaults: Map<vault-sync-id, name>,
            entries: Map<EntryKey, Entry> }
 EntryKey = "v/<vault-sync-id>/f/<relative path>"   vault file
          | "v/<vault-sync-id>/meta"                vault preferences
@@ -156,16 +169,39 @@ Entry { value: Object(id, size, mode) | Inline(json) | Tombstone,
         modified_at, origin, vv: Map<writer, counter> }
 ```
 
+A snapshot is Deflate-compressed JSON before sealing. Tags may contain `/`, so
+the `<tag>` segment escapes `%` as `%25` and `/` as `%2F`. Inline values are:
+vault preferences `{ markdownViewMode, restoreTabs, welcomePagePath }`, note
+placement `{ bookmarked, position, pinned }`, tag colors `{ color }`, project
+roots `{ explicit: true }`, preferences `{ value }`, plugin settings
+`{ version, value }` (`version` is the plugin's settings schema version),
+plugin state `{ value }`, and enablement `{ enabled: true }`. A revision is an
+object whose plaintext is the JSON revision row (path, content, encoding, line
+ending, encrypted flag, content hash, reason, creation time); its entry ID is
+that object's ID, so the same revision has the same key on every device.
+
 Unknown entry kinds from a newer format are carried through unchanged, never
 dropped, so an older client cannot delete what it does not understand.
 
 ## Synchronization
 
-Each device keeps `sync/sync.sqlite3` in application data: its writer ID and
-counter, the last generation applied from every known writer, the vault
-mapping (local vault scope ID to remote vault sync ID and folder), the local
-index (entry key to value, size, modification time, and version vector), and a
-crash journal. Counter, index, and journal changes commit in one transaction.
+Each device keeps `sync/sync.sqlite3` in application data: its writer ID,
+counter, and committed generation, the last generation applied and the highest
+seen from every known writer with its device name, the vault mapping (remote
+vault sync ID to local vault scope ID), the local index, pending conflicts,
+plugin suggestions, the renderer's portable preferences, options, and a crash
+journal. Counter, index, and journal changes commit in one transaction.
+
+For every entry key the index holds the merged entry this device publishes and
+the **observed** state: the value the local disk, database, or plugin last had,
+the version that value corresponds to, and (for files) its size and
+modification time. A scan creates a new version only when the observed value
+changes, and that version descends from the observed version, not from the
+merged one. When the merged entry was never applied here (for example, a file
+changed during the previous cycle), the new local version is therefore
+concurrent with it and both are kept instead of the local edit silently
+replacing the remote one. Values that cannot be applied locally (a plugin that
+is not enabled, a suggestion) never turn into local versions.
 
 One cycle:
 
@@ -182,9 +218,13 @@ One cycle:
    paths to NFC, and compare size and modification time with the index,
    hashing only changed files. A changed or removed entry gets
    `vv[self] = ++counter`; removal becomes a tombstone. A vault whose root is
-   missing or unreadable is skipped entirely and never produces tombstones.
-   A vault whose encryption manifest is in the `encrypting` or `decrypting`
-   phase is skipped until the transition finishes.
+   missing or unreadable is skipped entirely and never produces tombstones;
+   neither does a partially unreadable tree, a file that cannot be read, or one
+   over the size limit. A vault whose encryption manifest is in the
+   `encrypting` or `decrypting` phase is skipped until the transition
+   finishes. New objects are encrypted and uploaded as soon as they are hashed,
+   from the same bytes, so an upload never races a later edit. Revisions are
+   read incrementally from a per-vault row watermark.
 4. **Merge** every entry key across the local index and each remote snapshot:
    - equal version vectors, or equal values: keep, take the pointwise maximum;
    - one vector dominates: the dominating value wins;
@@ -195,10 +235,15 @@ One cycle:
        written beside it as `<stem>.sync-conflict-<first 8 hex of its object
        id>.<ext>`, a deterministic name, so every device materializes the same
        copy exactly once. The conflict copy is an ordinary new file;
-     - `.denote/encryption.json`: pause that vault and ask the user to keep the
-       local or remote manifest; nothing in the vault is applied meanwhile;
-     - plugin state or plugin setting: keep the local value and record the
-       remote value as a pending conflict the user resolves in the panel;
+     - `.denote/encryption.json`: any concurrent change, including deletion,
+       pauses that vault and asks the user to keep the local or remote
+       manifest; nothing in the vault is applied meanwhile;
+     - plugin state or plugin setting: keep the local entry, version vector
+       included, and record the remote value as a pending conflict the user
+       resolves in the panel. Because neither side absorbs the other's
+       version, both devices keep their own value without overwriting each
+       other until someone chooses; the choice is a new version that dominates
+       both. A device without a value of its own keeps the later one;
      - revision history: union, never conflicts.
    The merged vector is the pointwise maximum of both inputs, without a local
    increment, so devices resolving the same conflict converge on the same
@@ -215,9 +260,16 @@ One cycle:
    overwriting. Preferences and plugin data are applied through their normal
    validated import paths, after which affected plugin workers restart.
 7. **Publish.** Upload every object referenced by the merged state that the
-   remote does not already have, then write `heads/<writer>/<generation + 1>`,
-   then `backend.flush()`. Only after flush succeeds does the journal commit
-   the new generation and index.
+   remote does not already have (re-reading it from this device's own disk when
+   needed); an entry whose object is not available is left out of this
+   snapshot, which tells other devices nothing rather than something wrong.
+   The journal records the generation and counter, then the cycle writes
+   `heads/<writer>/<generation + 1>` and calls `backend.flush()`. Only after
+   flush succeeds does one transaction commit the new generation, counter,
+   index, and cleared journal. A cycle that changed nothing publishes nothing,
+   so settled devices stop writing generations. If a device finds its own
+   writer's generation that the journal says it was publishing when it was
+   interrupted, it merges that snapshot as its own instead of re-enrolling.
 
 ### Writer identity
 
@@ -251,8 +303,11 @@ The host scheduler runs a cycle on the configured interval (default 15
 minutes, 0 for manual only), shortly after the application starts, and when
 **Sync now** is pressed. It never runs while the application is locked, in
 safe mode, or after the plugin is disabled, crashes, or is being updated;
-`stop_sensitive_tools` cancels a running cycle at the next file boundary and
-the journal makes the cancelled cycle restartable. Disabling the plugin keeps
+`stop_sensitive_tools`, revoking a plugin, locking the app, or locking or
+switching a vault cancels a running cycle at the next file boundary, and the
+journal makes the cancelled cycle restartable. A cancelled or failed cycle
+commits nothing; files it already applied are recognized by content on the
+next scan. Disabling the plugin keeps
 the sync configuration; **Disconnect** removes the configuration, the local
 index, and the keychain entries, and never deletes remote data or local files.
 
@@ -275,11 +330,23 @@ permission, and are registered in `src-tauri/src/lib.rs`:
 | `sync_retire_device` | Retire another writer |
 | `sync_change_passphrase` | Rewrap the master key |
 | `sync_disconnect` | Remove local configuration and secrets |
+| `sync_choose_folder` | Open the host folder chooser for a folder backend (`purpose: "backend"`) or a `map-new` vault folder (`purpose: "vault"`); returns the absolute path or `null` when cancelled |
 
-Events: `denote://sync-status` carries the status view, and
-`denote://sync-applied` lists the vault roots, preference keys, and plugin IDs a
-cycle changed so the renderer can refresh trees, apply preferences, and restart
-affected plugin workers.
+Events: `denote://sync-status` carries the status view after every state
+change (setup, unlock, options, mapping, resolution, retirement, passphrase
+change, disconnect, and a cycle's start, progress, and end), and
+`denote://sync-applied` lists the vault roots (the exact `vaults.path` /
+`WorkspaceSnapshot.vaultPath` string), preference keys, and plugin IDs a cycle
+changed so the renderer can refresh trees, apply preferences, and restart
+affected plugin workers. Once configured, only the plugin that set sync up may
+call the commands. `sync_status` answers in every state, including before
+setup, with no vault open, and while the open vault is locked.
+
+`sync_put_preferences` receives the whole allowlist each time; a missing key
+or `null` means the preference is not set on this device. Only keys whose value
+differs from the recorded one become local changes. Transports keep private
+state only under `sync/backends/<kind>/` in application data, which
+**Disconnect** removes together with `sync/staging/`.
 
 ### Command payloads
 
@@ -356,6 +423,7 @@ interface SyncStatusView {
 // sync_retire_device(pluginId, writerId: string) -> SyncStatusView
 // sync_change_passphrase(pluginId, current: string, next: string) -> SyncStatusView
 // sync_disconnect(pluginId) -> SyncStatusView
+// sync_choose_folder(pluginId, purpose: "backend" | "vault") -> string | null
 // event "denote://sync-status": SyncStatusView
 // event "denote://sync-applied": { vaultRoots: string[];
 //        preferences: Record<string, string | null>; pluginIds: string[] }
