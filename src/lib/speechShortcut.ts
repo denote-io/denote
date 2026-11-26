@@ -1,3 +1,4 @@
+import { notifySyncPreferenceChanged } from "./syncPreferences";
 import {
   DEFAULT_DICTATION_SHORTCUT, editorZoomShortcut, isClosePaneShortcut, isCommandPaletteShortcut,
   isNewFileShortcut, isNewTabShortcut, isReplaceShortcut, isSearchShortcut, isSettingsShortcut,
@@ -70,4 +71,5 @@ export function saveSpeechShortcut(shortcut: ShortcutEvent): void {
   const value = formatSpeechShortcut(shortcut);
   try { localStorage.setItem(STORAGE_KEY, value); }
   catch { throw new Error("The dictation shortcut could not be saved. Check local storage access and try again."); }
+  notifySyncPreferenceChanged(STORAGE_KEY);
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, errorMessage } from "../lib/api";
 import type { PluginBundleMetadata, PluginView } from "../types";
 import type {
@@ -127,6 +127,7 @@ function permissionRequestEqual(
     case "presentation":
     case "speech":
     case "credential-store":
+    case "sync":
     case "note-graph":
     case "calendar":
     case "reminders":
@@ -184,7 +185,18 @@ function permissionsUnchanged(
 
 export interface PluginController {
   safeMode: boolean;
+  /**
+   * Content-gated tools (speech, credential store) follow the open readable
+   * vault. The sync tool is app-wide: it stays available whichever vault is
+   * open, including a locked encrypted one.
+   */
   sensitiveTools: PluginSensitiveToolContribution[];
+  /**
+   * Restarts running plugins whose settings or state a sync cycle imported,
+   * through the same path as an explicit settings import. Sync plugins are
+   * skipped so a cycle never cancels itself.
+   */
+  reloadSyncedPlugins: (pluginIds: string[]) => Promise<void>;
   authoringProviders: PluginAuthoringContribution[];
   requestAuthoring: (pluginId: string, providerId: string, request: PluginAuthoringRequest) => Promise<PluginAuthoringResult>;
   codeProviders: PluginCodeContribution[];
@@ -361,6 +373,11 @@ export function usePlugins(
   }>({ workspaceIdentity, contributions: [] });
   const authoringProviders = contentAvailable && authoringState.workspaceIdentity === workspaceIdentity
     ? authoringState.contributions : EMPTY_AUTHORING;
+  const sensitiveTools = useMemo(() => {
+    const contentTools = contentAvailable && sensitiveToolState.workspaceIdentity === workspaceIdentity;
+    const visible = sensitiveToolState.contributions.filter((tool) => tool.feature === "sync" || contentTools);
+    return visible.length ? visible : EMPTY_SENSITIVE_TOOLS;
+  }, [contentAvailable, sensitiveToolState, workspaceIdentity]);
   const [plugins, setPlugins] = useState<PluginView[]>([]);
   const pluginsRef = useRef(plugins);
   pluginsRef.current = plugins;
@@ -1073,6 +1090,18 @@ export function usePlugins(
     await refresh();
   }, [refresh, reportError]);
 
+  const reloadSyncedPlugins = useCallback(async (pluginIds: string[]) => {
+    for (const pluginId of new Set(pluginIds)) {
+      const plugin = pluginsRef.current.find((entry) => entry.catalog.manifest.id === pluginId);
+      if (!plugin?.enabled || plugin.approvedPermissions.some((permission) => permission.capability === "sync") ||
+          !runtimeRef.current?.isRunning(pluginId)) {
+        continue;
+      }
+      try { await withBusy(pluginId, () => reloadSettings(pluginId)); }
+      catch (error) { reportError(error); }
+    }
+  }, [reloadSettings, reportError, withBusy]);
+
   const updateSettings = useCallback(
     async (pluginId: string, settings: Record<string, unknown>) => {
       await withBusy(pluginId, async () => {
@@ -1504,8 +1533,8 @@ export function usePlugins(
 
   return {
     safeMode,
-    sensitiveTools: contentAvailable && sensitiveToolState.workspaceIdentity === workspaceIdentity
-      ? sensitiveToolState.contributions : EMPTY_SENSITIVE_TOOLS,
+    sensitiveTools,
+    reloadSyncedPlugins,
     authoringProviders,
     requestAuthoring,
     codeProviders: contentAvailable ? codeProviders : [],
