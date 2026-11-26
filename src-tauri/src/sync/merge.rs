@@ -112,13 +112,15 @@ pub(crate) fn merge_key(
             pointwise_max(&vv, &candidate.entry.vv)
         });
 
-    let exempt = |candidate: &Candidate<'_>| candidate.local && local_unconfirmed;
+    // An unconfirmed local entry neither dominates nor is dominated by a remote one.
+    let comparable = |left: &Candidate<'_>, right: &Candidate<'_>| {
+        !local_unconfirmed || left.local == right.local
+    };
     let maximal: Vec<&Candidate<'_>> = candidates
         .iter()
         .filter(|candidate| {
             !candidates.iter().any(|other| {
-                !exempt(candidate)
-                    && !exempt(other)
+                comparable(candidate, other)
                     && compare(&other.entry.vv, &candidate.entry.vv) == VvOrder::Dominates
             })
         })
@@ -140,6 +142,20 @@ pub(crate) fn merge_key(
             None => distinct.push((candidate.entry, candidate.local)),
         }
     }
+    // Any concurrent change to the encryption manifest, deletion included, pauses the vault.
+    if is_manifest_key(key) && distinct.len() > 1 {
+        distinct.sort_by(|left, right| later(right.0, left.0));
+        let remote_choice = distinct
+            .iter()
+            .find(|(_, local)| !local)
+            .map(|(entry, _)| (*entry).clone());
+        return KeyMerge {
+            entry: local.cloned(),
+            pending: remote_choice.into_iter().collect(),
+            pause_vault: true,
+            ..KeyMerge::default()
+        };
+    }
     if distinct
         .iter()
         .any(|(entry, _)| !entry.value.is_tombstone())
@@ -159,18 +175,6 @@ pub(crate) fn merge_key(
     distinct.sort_by(|left, right| later(right.0, left.0));
     let kind = EntryKind::parse(key);
 
-    if is_manifest_key(key) {
-        let remote_choice = distinct
-            .iter()
-            .find(|(_, local)| !local)
-            .map(|(entry, _)| (*entry).clone());
-        return KeyMerge {
-            entry: local.cloned(),
-            pending: remote_choice.into_iter().collect(),
-            pause_vault: true,
-            ..KeyMerge::default()
-        };
-    }
     if matches!(
         kind,
         EntryKind::PluginSetting { .. } | EntryKind::PluginState { .. }
@@ -490,6 +494,21 @@ mod tests {
         assert!(merged.pause_vault);
         assert_eq!(merged.entry.unwrap(), local);
         assert_eq!(merged.pending, vec![remote.clone()]);
+
+        // Disabling encryption on one device while another changes it also pauses.
+        let removed = tombstone(30, B, &[(A, 1), (B, 2)]);
+        let changed = object('3', 20, A, &[(A, 2)]);
+        let merged = merge_key(&key, Some(&changed), false, &[&removed]);
+        assert!(merged.pause_vault);
+        assert_eq!(merged.pending, vec![removed.clone()]);
+        // A dominating deletion is an ordinary change.
+        assert!(
+            merge_key(&key, Some(&local), false, &[&removed])
+                .entry
+                .unwrap()
+                .value
+                .is_tombstone()
+        );
 
         let mut state = BTreeMap::new();
         state.insert(key.clone(), local.clone());

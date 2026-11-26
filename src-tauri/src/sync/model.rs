@@ -161,6 +161,40 @@ impl<'a> EntryKind<'a> {
 
 pub(crate) const ENCRYPTION_MANIFEST_PATH: &str = ".denote/encryption.json";
 
+/// A tombstone and an absent value both mean "not present".
+pub(crate) fn present(value: Option<&EntryValue>) -> Option<&EntryValue> {
+    value.filter(|value| !value.is_tombstone())
+}
+
+pub(crate) fn same_presence(left: Option<&EntryValue>, right: Option<&EntryValue>) -> bool {
+    present(left) == present(right)
+}
+
+/// Tags may contain `/`, so their key segment escapes `%` and `/`.
+pub(crate) fn encode_segment(value: &str) -> String {
+    value.replace('%', "%25").replace('/', "%2F")
+}
+
+pub(crate) fn decode_segment(value: &str) -> Option<String> {
+    let mut decoded = String::with_capacity(value.len());
+    let mut rest = value;
+    while let Some(index) = rest.find('%') {
+        decoded.push_str(&rest[..index]);
+        match rest.get(index..index + 3) {
+            Some("%25") => decoded.push('%'),
+            Some("%2F") => decoded.push('/'),
+            _ => return None,
+        }
+        rest = &rest[index + 3..];
+    }
+    decoded.push_str(rest);
+    Some(decoded)
+}
+
+pub(crate) fn valid_vault_id(value: &str) -> bool {
+    valid_id(value)
+}
+
 pub(crate) fn file_key(vault: &str, path: &str) -> String {
     format!("v/{vault}/f/{path}")
 }
@@ -216,6 +250,9 @@ pub(crate) struct Snapshot {
     pub app_version: String,
     #[serde(default)]
     pub device_name: String,
+    /// Display names of the vaults this writer syncs, by vault sync ID.
+    #[serde(default)]
+    pub vaults: BTreeMap<String, String>,
     pub entries: BTreeMap<String, Entry>,
 }
 
@@ -269,7 +306,14 @@ impl Snapshot {
                 "A sync snapshot does not match its location".into(),
             ));
         }
-        if snapshot.entries.len() > MAX_ENTRIES || snapshot.device_name.len() > 256 {
+        if snapshot.entries.len() > MAX_ENTRIES
+            || snapshot.device_name.len() > 256
+            || snapshot.vaults.len() > 10_000
+            || snapshot
+                .vaults
+                .iter()
+                .any(|(id, name)| !valid_id(id) || name.len() > 256)
+        {
             return Err(AppError::InvalidData("A sync snapshot is too large".into()));
         }
         for (key, entry) in &snapshot.entries {
@@ -326,6 +370,18 @@ mod tests {
 
     const VAULT: &str = "0123456789abcdef0123456789abcdef";
     const WRITER: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    #[test]
+    fn tag_segments_round_trip() {
+        for tag in ["plain", "area/sub", "100%", "%2F/%25"] {
+            let encoded = encode_segment(tag);
+            assert!(!encoded.contains('/'));
+            assert_eq!(decode_segment(&encoded).as_deref(), Some(tag));
+        }
+        assert_eq!(decode_segment("bad%2"), None);
+        assert_eq!(decode_segment("bad%41"), None);
+        assert!(same_presence(None, Some(&EntryValue::Tombstone)));
+    }
 
     #[test]
     fn keys_parse_into_known_kinds_and_preserve_unknown_ones() {
@@ -392,6 +448,7 @@ mod tests {
             created_at: "2026-01-01T00:00:00+00:00".into(),
             app_version: "test".into(),
             device_name: "Synthetic".into(),
+            vaults: BTreeMap::from([(VAULT.to_string(), "Notes".to_string())]),
             entries,
         };
         let encoded = snapshot.encode().unwrap();
