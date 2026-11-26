@@ -132,10 +132,13 @@ export function passphraseStrength(passphrase: string): PassphraseStrength {
   return "weak";
 }
 
+const SYNC_STATES: readonly string[] = ["not-configured", "needs-passphrase", "idle", "running", "paused", "error"];
+
 export function isSyncStatusView(value: unknown): value is SyncStatusView {
   if (!value || typeof value !== "object") return false;
   const view = value as Partial<SyncStatusView>;
-  return typeof view.state === "string" && typeof view.options === "object" && view.options !== null &&
+  return typeof view.state === "string" && SYNC_STATES.includes(view.state) &&
+    typeof view.options === "object" && view.options !== null &&
     Array.isArray(view.devices) && Array.isArray(view.vaults) && Array.isArray(view.conflicts) &&
     Array.isArray(view.pluginSuggestions) && Array.isArray(view.warnings);
 }

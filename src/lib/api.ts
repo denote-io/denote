@@ -64,7 +64,7 @@ import type { CredentialRequest, CredentialResult } from "./credentials";
 import type { SpeechEngineStatus, SpeechProgress, SpeechTranscript } from "./speech";
 import type { UpdateChannel } from "./updateChannel";
 import {
-  SYNC_APPLIED_EVENT, SYNC_STATUS_EVENT,
+  SYNC_APPLIED_EVENT, SYNC_STATUS_EVENT, isSyncAppliedEvent, isSyncStatusView,
   type SyncAppliedEvent, type SyncGoogleConnection, type SyncOptions, type SyncSetupRequest, type SyncStatusView,
   type SyncVaultRequest,
 } from "./sync";
@@ -146,13 +146,18 @@ export const api = {
   syncChangePassphrase: (pluginId: string, current: string, next: string) =>
     invoke<SyncStatusView>("sync_change_passphrase", { pluginId, current, next }),
   syncDisconnect: (pluginId: string) => invoke<SyncStatusView>("sync_disconnect", { pluginId }),
-  /** Opens the host folder dialog for a sync folder backend or a new vault mapping. */
+  /** Opens the host folder chooser for a folder backend or a new vault mapping; null when cancelled. */
   syncChooseFolder: (pluginId: string, purpose: "backend" | "vault") =>
     invoke<string | null>("sync_choose_folder", { pluginId, purpose }),
+  /** Malformed payloads are dropped rather than rendered. */
   onSyncStatus: (handler: (status: SyncStatusView) => void): Promise<UnlistenFn> =>
-    listen<SyncStatusView>(SYNC_STATUS_EVENT, (event) => handler(event.payload)),
+    listen<unknown>(SYNC_STATUS_EVENT, (event) => {
+      if (isSyncStatusView(event.payload)) handler(event.payload);
+    }),
   onSyncApplied: (handler: (applied: SyncAppliedEvent) => void): Promise<UnlistenFn> =>
-    listen<SyncAppliedEvent>(SYNC_APPLIED_EVENT, (event) => handler(event.payload)),
+    listen<unknown>(SYNC_APPLIED_EVENT, (event) => {
+      if (isSyncAppliedEvent(event.payload)) handler(event.payload);
+    }),
   readNoteComments: (pluginId: string, workspaceScope: string) =>
     invoke<NoteCommentsSnapshot>("read_note_comments", { pluginId, workspaceScope }),
   saveNoteComments: (
