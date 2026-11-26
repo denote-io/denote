@@ -324,4 +324,27 @@ describe("EditorSettingsDialog", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("No plugins match these filters.")).toBeInTheDocument();
   });
+
+  it("opens directly on the plugin manager when the Sync panel asks for it", () => {
+    render(
+      <EditorSettingsDialog
+        {...pluginProps}
+        open
+        requestedSection="plugins"
+        disabled={false}
+        settings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        restoreTabs
+        externalDomains={[]}
+        allowAllExternalDomains={false}
+        onChange={vi.fn()}
+        onRestoreTabsChange={vi.fn()}
+        onRemoveExternalDomain={vi.fn()}
+        onClearExternalDomains={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Plugins" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("heading", { name: "Plugins" })).toBeInTheDocument();
+  });
 });

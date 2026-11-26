@@ -30,4 +30,21 @@ describe("VaultUnlockScreen", () => {
 
     expect(onUnlockWithRecoveryCode).toHaveBeenCalledWith("AAAA-BBBB");
   });
+
+  it("opens sync without unlocking the vault when a sync tool is available", async () => {
+    const user = userEvent.setup();
+    const onOpenSync = vi.fn();
+    const props = {
+      vaultName: "Notes", theme: "dark" as const, onThemeToggle: vi.fn(), onShowVaults: vi.fn(),
+      onUnlockWithPassword: vi.fn(), onUnlockWithRecoveryCode: vi.fn(),
+    };
+    const view = render(<VaultUnlockScreen {...props} />);
+    expect(screen.queryByRole("button", { name: "Open sync" })).not.toBeInTheDocument();
+    view.rerender(<VaultUnlockScreen {...props} onOpenSync={onOpenSync} />);
+
+    await user.click(screen.getByRole("button", { name: "Open sync" }));
+
+    expect(onOpenSync).toHaveBeenCalledTimes(1);
+    expect(props.onUnlockWithPassword).not.toHaveBeenCalled();
+  });
 });
