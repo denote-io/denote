@@ -29,6 +29,10 @@ import { $getRoot, $getSelection, $isRangeSelection, KEY_DOWN_COMMAND, type Lexi
 import { syntheticEmojiPicker, syntheticEmojiPluginView } from "./lib/emoji.testFixtures";
 
 const mockApi = vi.hoisted(() => ({
+  onSyncApplied: vi.fn(async (_handler: (event: unknown) => void) => () => {}),
+  onSyncStatus: vi.fn(async (_handler: (status: unknown) => void) => () => {}),
+  syncStatus: vi.fn(),
+  syncPutPreferences: vi.fn(),
   getAppLockStatus: vi.fn(),
   unlockAppWithPassword: vi.fn(),
   unlockAppWithDevice: vi.fn(),
@@ -111,6 +115,7 @@ const mockPluginController = vi.hoisted(() => ({
   clearCredentials: vi.fn(),
   updateSettings: vi.fn(),
   importSettings: vi.fn(),
+  reloadSyncedPlugins: vi.fn().mockResolvedValue(undefined),
   runCommand: vi.fn(),
   runSourceControlAction: vi.fn().mockResolvedValue(undefined),
   parseStructuredView: vi.fn(),
@@ -868,6 +873,39 @@ describe("App initial file-tree expansion", () => {
     expect(
       screen.queryByRole("button", { name: "Open before.md" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("applies a sync cycle to preferences, the open vault, and affected plugins", async () => {
+    mockApi.getLastVault.mockResolvedValue(
+      workspaceSnapshot([fileNode("before.md", "markdown")]),
+    );
+    mockApi.refreshVault.mockResolvedValue(
+      workspaceSnapshot([fileNode("synced.md", "markdown")]),
+    );
+    let applied: ((event: unknown) => void) | null = null;
+    mockApi.onSyncApplied.mockImplementation(async (handler: (event: unknown) => void) => {
+      applied = handler;
+      return () => {};
+    });
+    localStorage.setItem("denote-theme", "dark");
+
+    render(<App />);
+    expect(await screen.findByRole("button", { name: "Open before.md" })).toBeInTheDocument();
+    await waitFor(() => expect(applied).not.toBeNull());
+    await act(async () => {
+      applied?.({
+        vaultRoots: ["/synthetic-other-vault", "/synthetic-vault"],
+        preferences: { "denote-theme": "light", "denote-update-channel": "beta" },
+        pluginIds: ["denote.synthetic"],
+      });
+      await Promise.resolve();
+    });
+
+    expect(await screen.findByRole("button", { name: "Open synced.md" })).toBeInTheDocument();
+    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(localStorage.getItem("denote-update-channel")).toBeNull();
+    expect(mockPluginController.reloadSyncedPlugins).toHaveBeenCalledWith(["denote.synthetic"]);
+    expect(mockApi.syncPutPreferences).not.toHaveBeenCalled();
   });
 
   it("refreshes a stale tree instead of reporting a removed file read error", async () => {

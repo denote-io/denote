@@ -1824,7 +1824,6 @@ function Workspace({ appLock }: { appLock: AppLockActions }) {
     sensitiveTools.find((tool) => tool.feature === "sync") ?? null;
   const [syncDialogOpen, setSyncDialogOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<"plugins" | undefined>(undefined);
-  useEffect(() => { if (!syncTool) setSyncDialogOpen(false); }, [syncTool]);
   useSyncBridge({
     pluginId: syncTool?.pluginId ?? null,
     onError: showError,
@@ -1855,6 +1854,8 @@ function Workspace({ appLock }: { appLock: AppLockActions }) {
     setActivePluginSidebar(id);
   }, [showSidebarView]);
   const syncInSidebar = workspace !== null && (!workspace.encryption.enabled || workspace.encryption.unlocked);
+  // The dialog only stands in for the sidebar on the Welcome and locked-vault screens.
+  useEffect(() => { if (!syncTool || syncInSidebar) setSyncDialogOpen(false); }, [syncTool, syncInSidebar]);
   const openSync = useCallback(() => {
     if (!syncTool) return;
     if (syncInSidebar) showPluginSidebar(syncTool.id);
