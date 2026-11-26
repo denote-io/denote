@@ -255,7 +255,7 @@ pub(crate) struct BackendContext {
     /// `sync/` in application data. Transports keep private state only under
     /// `sync_dir/backends/<kind>/`, which Disconnect removes.
     pub sync_dir: PathBuf,
-    /// Set when the running cycle is cancelled.
+    /// Set when the operation that opened this transport is cancelled.
     pub cancel: Arc<AtomicBool>,
     pub plugins: Option<crate::plugins::PluginManager>,
     /// Every known vault root; a transport's private data may not overlap them.

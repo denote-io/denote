@@ -41,6 +41,53 @@ impl SecretStore for FakeSecrets {
     }
 }
 
+/// Fails every request once its operation is cancelled, like the Git transport.
+struct CancelAware {
+    inner: Box<dyn Backend>,
+    cancel: Arc<AtomicBool>,
+}
+
+impl CancelAware {
+    fn check(&self) -> AppResult<()> {
+        if self.cancel.load(Ordering::SeqCst) {
+            return Err(AppError::State("Synthetic storage was cancelled".into()));
+        }
+        Ok(())
+    }
+}
+
+impl Backend for CancelAware {
+    fn get(&self, key: &str) -> AppResult<Option<Vec<u8>>> {
+        self.check()?;
+        self.inner.get(key)
+    }
+
+    fn put(&self, key: &str, bytes: &[u8], mode: PutMode) -> AppResult<PutOutcome> {
+        self.check()?;
+        self.inner.put(key, bytes, mode)
+    }
+
+    fn list(&self, prefix: &str) -> AppResult<Vec<String>> {
+        self.check()?;
+        self.inner.list(prefix)
+    }
+
+    fn delete(&self, key: &str) -> AppResult<()> {
+        self.check()?;
+        self.inner.delete(key)
+    }
+
+    fn refresh(&self) -> AppResult<()> {
+        self.check()?;
+        self.inner.refresh()
+    }
+
+    fn flush(&self) -> AppResult<()> {
+        self.check()?;
+        self.inner.flush()
+    }
+}
+
 struct NoLock;
 
 impl VaultLock for NoLock {
@@ -96,6 +143,18 @@ impl SyncEnvironment for FakeEnvironment {
 
     fn app_version(&self) -> String {
         "test".into()
+    }
+
+    fn open_backend(
+        &self,
+        config: &BackendConfig,
+        secrets: &BackendSecrets,
+        context: &BackendContext,
+    ) -> AppResult<Box<dyn Backend>> {
+        Ok(Box::new(CancelAware {
+            inner: backends::open(config, secrets, context)?,
+            cancel: context.cancel.clone(),
+        }))
     }
 }
 
@@ -402,11 +461,62 @@ fn commands_refuse_without_permission_and_validate_options() {
     }
     device.environment.denied.store(false, Ordering::SeqCst);
 
-    // A cancelled cycle reports the cancellation and can run again.
-    let cancel = device.service.inner.cancel.clone();
-    let _active = ActiveCycle::register("denote.sync.test-only", &cancel);
+    // Cancelling reaches registered operations of the named plugin only.
+    let operation = Operation::begin(device.service.inner.id, "denote.sync.test-only");
+    let other = Operation::begin(device.service.inner.id, "denote.sync.other-test-only");
     cancel_running(Some("denote.sync.test-only"));
-    assert!(cancel.load(Ordering::SeqCst));
+    assert!(operation.token().load(Ordering::SeqCst));
+    assert!(!other.token().load(Ordering::SeqCst));
     assert!(device.service.resolve(PLUGIN, "missing", "maybe").is_err());
     assert!(device.service.resolve(PLUGIN, "missing", "local").is_err());
+}
+
+#[test]
+fn a_cancellation_never_outlives_the_operations_it_hit() {
+    let storage = tempfile::tempdir().unwrap();
+    let laptop = Device::new();
+    let desk = Device::new();
+    laptop
+        .setup(SetupMode::Create, storage.path(), PASSPHRASE, false)
+        .unwrap();
+    desk.setup(SetupMode::Join, storage.path(), PASSPHRASE, false)
+        .unwrap();
+    laptop.run();
+    desk.run();
+    laptop.run();
+    let desk_writer = desk
+        .service
+        .status(PLUGIN)
+        .unwrap()
+        .device
+        .unwrap()
+        .writer_id;
+
+    // Cancel pressed while idle leaves later storage operations alone.
+    laptop.service.cancel(PLUGIN).unwrap();
+    laptop
+        .service
+        .change_passphrase(PLUGIN, PASSPHRASE, "next synthetic passphrase")
+        .unwrap();
+    laptop.service.cancel(PLUGIN).unwrap();
+    laptop.service.retire_device(PLUGIN, &desk_writer).unwrap();
+    laptop.service.cancel(PLUGIN).unwrap();
+    laptop.run();
+
+    // Disconnect cancels, then setting up again talks to storage normally.
+    laptop.service.disconnect(PLUGIN).unwrap();
+    laptop
+        .setup(
+            SetupMode::Join,
+            storage.path(),
+            "next synthetic passphrase",
+            false,
+        )
+        .unwrap();
+    laptop.service.cancel(PLUGIN).unwrap();
+    laptop
+        .service
+        .unlock(PLUGIN, "next synthetic passphrase", false)
+        .unwrap();
+    laptop.run();
 }

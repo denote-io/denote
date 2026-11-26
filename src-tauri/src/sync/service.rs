@@ -7,7 +7,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc, Condvar, Mutex, MutexGuard, PoisonError,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     thread,
     time::{Duration, Instant},
@@ -66,6 +66,15 @@ pub(crate) trait SyncEnvironment: Send + Sync {
     fn emit_status(&self, status: &SyncStatusView);
     fn emit_applied(&self, applied: &SyncAppliedEvent);
     fn app_version(&self) -> String;
+    /// Opens the storage transport. Tests substitute their own.
+    fn open_backend(
+        &self,
+        config: &BackendConfig,
+        secrets: &BackendSecrets,
+        context: &BackendContext,
+    ) -> AppResult<Box<dyn Backend>> {
+        backends::open(config, secrets, context)
+    }
 }
 
 /// The operating-system credential store, under the reserved `host-sync.` namespace.
@@ -75,36 +84,57 @@ pub(crate) trait SecretStore: Send + Sync {
     fn delete(&self, plugin_id: &str, name: &str) -> AppResult<()>;
 }
 
-static ACTIVE: Mutex<Vec<(String, Arc<AtomicBool>)>> = Mutex::new(Vec::new());
+/// One in-flight operation that may touch storage or vaults.
+struct Registration {
+    plugin_id: String,
+    service: u64,
+    cancel: Arc<AtomicBool>,
+}
 
-/// Cancels a running cycle at its next file boundary (all cycles for `None`).
+static ACTIVE: Mutex<Vec<Registration>> = Mutex::new(Vec::new());
+static NEXT_SERVICE_ID: AtomicU64 = AtomicU64::new(1);
+
+/// Cancels in-flight sync operations at their next file boundary or storage
+/// request (all plugins for `None`). Nothing outlives the operations it hits.
 pub(crate) fn cancel_running(plugin_id: Option<&str>) {
     let active = ACTIVE.lock().unwrap_or_else(PoisonError::into_inner);
-    for (owner, cancel) in active.iter() {
-        if plugin_id.is_none_or(|plugin_id| plugin_id == owner) {
-            cancel.store(true, Ordering::SeqCst);
+    for registration in active.iter() {
+        if plugin_id.is_none_or(|plugin_id| plugin_id == registration.plugin_id) {
+            registration.cancel.store(true, Ordering::SeqCst);
         }
     }
 }
 
-struct ActiveCycle(Arc<AtomicBool>);
+/// A cancellation token for one cycle, setup, unlock, retirement, or
+/// passphrase change. Each operation gets a fresh token, registered until it
+/// ends, so a cancellation never outlives the operations it was aimed at.
+struct Operation(Arc<AtomicBool>);
 
-impl ActiveCycle {
-    fn register(plugin_id: &str, cancel: &Arc<AtomicBool>) -> Self {
+impl Operation {
+    fn begin(service: u64, plugin_id: &str) -> Self {
+        let cancel = Arc::new(AtomicBool::new(false));
         ACTIVE
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .push((plugin_id.to_string(), cancel.clone()));
-        Self(cancel.clone())
+            .push(Registration {
+                plugin_id: plugin_id.to_string(),
+                service,
+                cancel: cancel.clone(),
+            });
+        Self(cancel)
+    }
+
+    fn token(&self) -> &Arc<AtomicBool> {
+        &self.0
     }
 }
 
-impl Drop for ActiveCycle {
+impl Drop for Operation {
     fn drop(&mut self) {
         ACTIVE
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .retain(|(_, cancel)| !Arc::ptr_eq(cancel, &self.0));
+            .retain(|registration| !Arc::ptr_eq(&registration.cancel, &self.0));
     }
 }
 
@@ -128,7 +158,8 @@ struct Inner {
     runtime: Mutex<Runtime>,
     wake: Condvar,
     cycle: Mutex<()>,
-    cancel: Arc<AtomicBool>,
+    /// Identifies this service's operations in the shared registry.
+    id: u64,
 }
 
 #[derive(Clone)]
@@ -179,7 +210,7 @@ impl SyncService {
                 runtime: Mutex::new(Runtime::default()),
                 wake: Condvar::new(),
                 cycle: Mutex::new(()),
-                cancel: Arc::new(AtomicBool::new(false)),
+                id: NEXT_SERVICE_ID.fetch_add(1, Ordering::Relaxed),
             }),
         })
     }
@@ -194,7 +225,7 @@ impl SyncService {
     }
 
     pub(crate) fn shutdown(&self) {
-        self.inner.cancel.store(true, Ordering::SeqCst);
+        self.cancel_operations();
         let mut runtime = self
             .inner
             .runtime
@@ -222,6 +253,21 @@ impl SyncService {
 
     fn environment(&self) -> &dyn SyncEnvironment {
         self.inner.environment.as_ref()
+    }
+
+    fn begin(&self, plugin_id: &str) -> Operation {
+        Operation::begin(self.inner.id, plugin_id)
+    }
+
+    /// Cancels this service's in-flight operations. With none running it
+    /// does nothing, so a later operation starts uncancelled.
+    fn cancel_operations(&self) {
+        let active = ACTIVE.lock().unwrap_or_else(PoisonError::into_inner);
+        for registration in active.iter() {
+            if registration.service == self.inner.id {
+                registration.cancel.store(true, Ordering::SeqCst);
+            }
+        }
     }
 
     fn config(&self) -> AppResult<Option<PersistedConfig>> {
@@ -302,21 +348,25 @@ impl SyncService {
             .collect())
     }
 
-    fn context(&self, plugin_id: &str) -> AppResult<BackendContext> {
+    fn context(&self, plugin_id: &str, operation: &Operation) -> AppResult<BackendContext> {
         Ok(BackendContext {
             plugin_id: plugin_id.to_string(),
             sync_dir: self.inner.sync_dir.clone(),
-            cancel: self.inner.cancel.clone(),
+            cancel: operation.token().clone(),
             plugins: self.environment().backend_plugins(),
             vault_roots: self.vault_roots()?,
         })
     }
 
-    fn open_backend(&self, config: &PersistedConfig) -> AppResult<Box<dyn Backend>> {
-        backends::open(
+    fn open_backend(
+        &self,
+        config: &PersistedConfig,
+        operation: &Operation,
+    ) -> AppResult<Box<dyn Backend>> {
+        self.environment().open_backend(
             &config.backend,
             &self.backend_secrets(config)?,
-            &self.context(&config.plugin_id)?,
+            &self.context(&config.plugin_id, operation)?,
         )
     }
 
@@ -695,11 +745,16 @@ impl SyncService {
                 "Sync is already set up on this device. Disconnect it first.".into(),
             ));
         }
+        let operation = self.begin(plugin_id);
         let _cycle = self.cycle_guard()?;
         let device_name = validate_device_name(&request.device_name)?;
         validate_passphrase(&request.passphrase)?;
         let (backend_config, secrets) = self.backend_from_request(&request.backend)?;
-        let backend = backends::open(&backend_config, &secrets, &self.context(plugin_id)?)?;
+        let backend = self.environment().open_backend(
+            &backend_config,
+            &secrets,
+            &self.context(plugin_id, &operation)?,
+        )?;
         backend.refresh()?;
         let existing = backend.get("repository.json")?;
         let (header, master) = match (request.mode, existing) {
@@ -821,7 +876,8 @@ impl SyncService {
         if passphrase.len() > MAX_PASSPHRASE_BYTES {
             return Err(AppError::Crypto("The sync passphrase is incorrect".into()));
         }
-        let backend = self.open_backend(&config)?;
+        let operation = self.begin(plugin_id);
+        let backend = self.open_backend(&config, &operation)?;
         backend.refresh()?;
         let header = parse_header(&backend.get("repository.json")?.ok_or_else(|| {
             AppError::NotFound("The sync repository is missing from storage.".into())
@@ -859,8 +915,7 @@ impl SyncService {
         if current.repository_id != config.repository_id {
             return Err(not_configured());
         }
-        self.inner.cancel.store(false, Ordering::SeqCst);
-        let _active = ActiveCycle::register(&current.plugin_id, &self.inner.cancel);
+        let operation = self.begin(&current.plugin_id);
         {
             let mut runtime = self.runtime()?;
             runtime.running = true;
@@ -870,7 +925,7 @@ impl SyncService {
         let mut report = CycleReport::default();
         let version = self.environment().app_version();
         let staging = self.inner.sync_dir.join("staging");
-        let result = self.open_backend(&current).and_then(|backend| {
+        let result = self.open_backend(&current, &operation).and_then(|backend| {
             let vault_lock = self.environment().vault_lock()?;
             let engine = Engine {
                 store: &self.inner.store,
@@ -880,7 +935,7 @@ impl SyncService {
                 plugins: self.environment().plugin_data(),
                 vault_lock,
                 staging: &staging,
-                cancel: &self.inner.cancel,
+                cancel: operation.token(),
                 progress: &|phase, done, total| self.progress(phase, done, total),
                 app_version: &version,
             };
@@ -918,7 +973,7 @@ impl SyncService {
 
     pub(crate) fn cancel(&self, plugin_id: &str) -> AppResult<()> {
         self.authorize(plugin_id)?;
-        self.inner.cancel.store(true, Ordering::SeqCst);
+        self.cancel_operations();
         Ok(())
     }
 
@@ -1317,7 +1372,8 @@ impl SyncService {
             "retiredAt": db::now(),
         }))
         .map_err(|error| AppError::State(format!("Unable to record the removal: {error}")))?;
-        let backend = self.open_backend(&config)?;
+        let operation = self.begin(plugin_id);
+        let backend = self.open_backend(&config, &operation)?;
         backend.refresh()?;
         backend.put(
             &engine::retired_key(writer_id),
@@ -1345,8 +1401,9 @@ impl SyncService {
         if !keys_available {
             return Err(needs_passphrase());
         }
+        let operation = self.begin(plugin_id);
         let _cycle = self.cycle_guard()?;
-        let backend = self.open_backend(&config)?;
+        let backend = self.open_backend(&config, &operation)?;
         backend.refresh()?;
         let header = parse_header(&backend.get("repository.json")?.ok_or_else(|| {
             AppError::NotFound("The sync repository is missing from storage.".into())
@@ -1374,7 +1431,7 @@ impl SyncService {
     /// data and local files are left untouched.
     pub(crate) fn disconnect(&self, plugin_id: &str) -> AppResult<SyncStatusView> {
         let config = self.configured(plugin_id)?;
-        self.inner.cancel.store(true, Ordering::SeqCst);
+        self.cancel_operations();
         let _cycle = self.cycle_guard()?;
         let secrets = self.environment().secrets()?;
         secrets.delete(&config.plugin_id, SECRET_BACKEND)?;

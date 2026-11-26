@@ -323,7 +323,12 @@ minutes, 0 for manual only), shortly after the application starts, and when
 safe mode, or after the plugin is disabled, crashes, or is being updated;
 `stop_sensitive_tools`, revoking a plugin, locking the app, or locking or
 switching a vault cancels a running cycle at the next file boundary, and the
-journal makes the cancelled cycle restartable. A cancelled or failed cycle
+journal makes the cancelled cycle restartable. The same cancellation, and
+**Cancel sync** or **Disconnect** on this device, also stops a setup, unlock,
+device removal, or passphrase change that is talking to storage. Every cycle
+and storage operation has its own cancellation token, so a cancellation only
+reaches operations in flight; pressing **Cancel sync** while idle, or setting
+sync up again after **Disconnect**, is never affected by an earlier one. A cancelled or failed cycle
 commits nothing; files it already applied are recognized by content on the
 next scan. Disabling the plugin keeps
 the sync configuration; **Disconnect** removes the configuration, the local
