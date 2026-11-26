@@ -3648,7 +3648,7 @@ fn create_file_no_replace(path: &Path, data: &[u8]) -> AppResult<()> {
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
-fn rename_no_replace(source: &Path, destination: &Path) -> std::io::Result<()> {
+pub(crate) fn rename_no_replace(source: &Path, destination: &Path) -> std::io::Result<()> {
     use std::{ffi::CString, os::unix::ffi::OsStrExt};
 
     let source = CString::new(source.as_os_str().as_bytes()).map_err(|_| {
@@ -3675,7 +3675,7 @@ fn rename_no_replace(source: &Path, destination: &Path) -> std::io::Result<()> {
 }
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
-fn rename_no_replace(source: &Path, destination: &Path) -> std::io::Result<()> {
+pub(crate) fn rename_no_replace(source: &Path, destination: &Path) -> std::io::Result<()> {
     use std::{ffi::CString, os::unix::ffi::OsStrExt};
 
     let source = CString::new(source.as_os_str().as_bytes()).map_err(|_| {
@@ -3695,7 +3695,7 @@ fn rename_no_replace(source: &Path, destination: &Path) -> std::io::Result<()> {
 }
 
 #[cfg(windows)]
-fn rename_no_replace(source: &Path, destination: &Path) -> std::io::Result<()> {
+pub(crate) fn rename_no_replace(source: &Path, destination: &Path) -> std::io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::MoveFileExW;
 
@@ -3725,7 +3725,7 @@ fn rename_no_replace(source: &Path, destination: &Path) -> std::io::Result<()> {
     target_os = "ios",
     windows
 )))]
-fn rename_no_replace(source: &Path, destination: &Path) -> std::io::Result<()> {
+pub(crate) fn rename_no_replace(source: &Path, destination: &Path) -> std::io::Result<()> {
     if destination.exists() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::AlreadyExists,
