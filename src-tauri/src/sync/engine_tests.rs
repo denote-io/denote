@@ -298,6 +298,12 @@ fn concurrent_edits_leave_one_identical_conflict_copy_on_every_device() {
 
 #[test]
 fn three_devices_converge_after_interleaved_changes_without_ping_pong() {
+    for seed in [17, 4242, 900_001] {
+        interleaved_changes_converge(seed);
+    }
+}
+
+fn interleaved_changes_converge(mut seed: u64) {
     let backend = MemoryBackend::default();
     let keys = repository(&backend);
     let devices: Vec<Device> = ["A", "B", "C"]
@@ -312,22 +318,28 @@ fn three_devices_converge_after_interleaved_changes_without_ping_pong() {
             root
         })
         .collect();
-    let mut seed = 17u64;
     let mut next = |limit: u64| {
         seed = seed
             .wrapping_mul(6364136223846793005)
             .wrapping_add(1442695040888963407);
         (seed >> 33) % limit
     };
+    let mut last_round: BTreeMap<(usize, String), Option<String>> = BTreeMap::new();
     for round in 0..6 {
+        last_round.clear();
         for (index, root) in roots.iter().enumerate() {
             for _ in 0..3 {
                 let file = format!("f{}.md", next(5));
                 match next(4) {
                     0 => {
                         let _ = fs::remove_file(root.join(&file));
+                        last_round.insert((index, file), None);
                     }
-                    _ => write(root, &file, &format!("round {round} device {index}")),
+                    _ => {
+                        let content = format!("round {round} device {index} {file}");
+                        write(root, &file, &content);
+                        last_round.insert((index, file), Some(content));
+                    }
                 }
             }
         }
@@ -344,6 +356,15 @@ fn three_devices_converge_after_interleaved_changes_without_ping_pong() {
     let reference = tree(&roots[0]);
     for root in &roots[1..] {
         assert_eq!(tree(root), reference);
+    }
+    // The last round's edits were concurrent, so every one of them survives,
+    // at its path or as a conflict copy.
+    let contents: Vec<&[u8]> = reference.values().map(Vec::as_slice).collect();
+    for written in last_round.values().flatten() {
+        assert!(
+            contents.contains(&written.as_bytes()),
+            "lost {written}: {reference:?}"
+        );
     }
     for device in &devices {
         let report = device.sync(&backend, &keys);

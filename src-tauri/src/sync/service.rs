@@ -151,7 +151,7 @@ fn not_configured() -> AppError {
 }
 
 fn needs_passphrase() -> AppError {
-    AppError::Locked
+    AppError::State("Enter the sync passphrase to unlock sync on this device.".into())
 }
 
 fn overlaps(left: &Path, right: &Path) -> bool {
