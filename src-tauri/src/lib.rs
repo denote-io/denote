@@ -324,15 +324,22 @@ pub fn run() {
             let app_lock = app_lock::AppLockManager::load(db_path.clone())?;
             let state = AppState::with_app_lock(db_path.clone(), Some(active_vault), app_lock);
             app.manage(state);
-            let sync = sync::service::SyncService::new(
+            // A damaged sync store disables sync for this session, never startup.
+            match sync::service::SyncService::new(
                 &app_data_dir,
                 db_path,
                 std::sync::Arc::new(sync::commands::TauriSyncEnvironment::new(
                     app.handle().clone(),
                 )),
-            )?;
-            sync.start_scheduler()?;
-            app.manage(sync);
+            ) {
+                Ok(sync) => {
+                    if let Err(error) = sync.start_scheduler() {
+                        eprintln!("Scheduled sync is unavailable: {error}");
+                    }
+                    app.manage(sync);
+                }
+                Err(error) => eprintln!("Sync is unavailable in this session: {error}"),
+            }
             Ok(())
         })
         .invoke_handler(app_lock::ipc::guard(tauri::generate_handler![
