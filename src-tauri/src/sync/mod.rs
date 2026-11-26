@@ -7,6 +7,7 @@ pub(crate) mod backend_tests;
 pub(crate) mod backends;
 pub(crate) mod config;
 pub(crate) mod crypto;
+pub(crate) mod engine;
 pub(crate) mod merge;
 pub(crate) mod metadata;
 pub(crate) mod model;

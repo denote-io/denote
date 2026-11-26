@@ -179,13 +179,13 @@ pub(crate) fn merge_key(
         kind,
         EntryKind::PluginSetting { .. } | EntryKind::PluginState { .. }
     ) {
-        let kept = distinct
-            .iter()
-            .find(|(_, local)| *local)
-            .map(|(entry, _)| *entry)
+        // Each side keeps its own value and version until the user chooses, so
+        // neither silently dominates the other.
+        let kept = local
+            .filter(|local| distinct.iter().any(|(entry, _)| entry.value == local.value))
             .unwrap_or(distinct[0].0);
         return KeyMerge {
-            entry: Some(with_vv(kept)),
+            entry: Some(kept.clone()),
             pending: distinct
                 .iter()
                 .filter(|(entry, _)| entry.value != kept.value)
@@ -222,6 +222,8 @@ pub(crate) struct StateMerge {
     pub entries: BTreeMap<String, Entry>,
     pub pending: Vec<(String, Entry)>,
     pub paused_vaults: BTreeSet<String>,
+    /// Keys of conflict copies this merge produced.
+    pub copies: BTreeSet<String>,
 }
 
 /// Merges the local index with every remote snapshot for the keys `include` admits.
@@ -272,6 +274,7 @@ pub(crate) fn merge_state(
         }
         let mut next = Vec::new();
         for (key, copy) in copies {
+            result.copies.insert(key.clone());
             let existing = result.entries.get(&key).cloned();
             let merged = merge_key(&key, existing.as_ref(), false, &[&copy]);
             next.extend(merged.conflict_copies);
@@ -291,6 +294,7 @@ pub(crate) fn merge_state(
         result
             .entries
             .retain(|key, _| !paused(key) || local.contains_key(key));
+        result.copies.retain(|key| !paused(key));
         for (key, entry) in local.iter().filter(|(key, _)| paused(key)) {
             result.entries.insert(key.clone(), entry.clone());
         }
@@ -529,10 +533,20 @@ mod tests {
         let local = inline(json!(1), 10, A, &[(A, 1)]);
         let remote = inline(json!(2), 20, B, &[(B, 1)]);
         let merged = merge_key(key, Some(&local), false, &[&remote]);
-        let entry = merged.entry.unwrap();
-        assert_eq!(entry.value, local.value);
-        assert_eq!(entry.vv, vv(&[(A, 1), (B, 1)]));
+        assert_eq!(
+            merged.entry.unwrap(),
+            local,
+            "the local version is kept as is"
+        );
         assert_eq!(merged.pending, vec![remote.clone()]);
+        // The other device does the mirror image, so the pair is stable.
+        let mirrored = merge_key(key, Some(&remote), false, &[&local]);
+        assert_eq!(mirrored.entry.unwrap(), remote);
+        assert_eq!(mirrored.pending, vec![local.clone()]);
+        // A device without a value of its own picks deterministically.
+        let third = merge_key(key, None, false, &[&local, &remote]);
+        assert_eq!(third.entry.unwrap(), remote);
+        assert_eq!(third.pending, vec![local.clone()]);
 
         // Other inline kinds resolve deterministically without pending conflicts.
         let pref = "app/preferences/denote-theme";

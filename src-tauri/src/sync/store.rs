@@ -17,6 +17,8 @@ pub(crate) const META_CONFIG: &str = "config";
 pub(crate) const META_IDENTITY: &str = "identity";
 pub(crate) const META_LAST_RUN: &str = "last-run";
 pub(crate) const META_HISTORY_WATERMARKS: &str = "history-watermarks";
+/// Set when the index changed outside a cycle and must be published.
+pub(crate) const META_PUBLISH_PENDING: &str = "publish-pending";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Fingerprint {

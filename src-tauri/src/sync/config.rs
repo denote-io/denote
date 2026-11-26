@@ -12,6 +12,16 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 use crate::error::{AppError, AppResult};
 
 pub(crate) const MAX_INTERVAL_MINUTES: u32 = 1440;
+/// Portable renderer preferences. Every other key is rejected.
+pub(crate) const PREFERENCE_KEYS: [&str; 6] = [
+    "denote-theme",
+    "denote-editor-display",
+    "denote-markdown-view-mode",
+    "denote-show-dotfiles",
+    "denote.speech-shortcut.v1",
+    "denote.plugin-rail.v1",
+];
+pub(crate) const MAX_PREFERENCE_BYTES: usize = 64 * 1024;
 pub(crate) const DEFAULT_INTERVAL_MINUTES: u32 = 15;
 const MAX_FIELD_BYTES: usize = 2048;
 const MAX_SECRET_BYTES: usize = 16 * 1024;
@@ -202,6 +212,19 @@ impl BackendConfig {
             } => format!("{remote_url} ({branch})"),
         }
     }
+}
+
+/// Non-secret configuration persisted in the sync store.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PersistedConfig {
+    /// The plugin whose enabled `sync` permission authorizes sync.
+    pub plugin_id: String,
+    pub repository_id: String,
+    pub backend: BackendConfig,
+    pub device_name: String,
+    pub remember_passphrase: bool,
+    pub options: SyncOptions,
 }
 
 /// Credentials stored only in the operating-system keychain.
