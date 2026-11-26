@@ -63,7 +63,11 @@ impl VaultState {
             "pending-mapping" => Self::PendingMapping,
             "skipped" => Self::Skipped,
             "stopped" => Self::Stopped,
-            other => return Err(AppError::InvalidData(format!("Unknown sync vault state {other}"))),
+            other => {
+                return Err(AppError::InvalidData(format!(
+                    "Unknown sync vault state {other}"
+                )));
+            }
         })
     }
 }
@@ -100,7 +104,9 @@ pub(crate) struct Store {
 impl Store {
     pub(crate) fn open(directory: &Path) -> AppResult<Self> {
         std::fs::create_dir_all(directory)?;
-        let store = Self { path: directory.join(STORE_FILE) };
+        let store = Self {
+            path: directory.join(STORE_FILE),
+        };
         let connection = store.connection()?;
         connection.execute_batch(
             r#"
@@ -168,7 +174,10 @@ impl Store {
         Ok(connection)
     }
 
-    pub(crate) fn transaction<T>(&self, operation: impl FnOnce(&Transaction<'_>) -> AppResult<T>) -> AppResult<T> {
+    pub(crate) fn transaction<T>(
+        &self,
+        operation: impl FnOnce(&Transaction<'_>) -> AppResult<T>,
+    ) -> AppResult<T> {
         let mut connection = self.connection()?;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let result = operation(&transaction)?;
@@ -189,20 +198,33 @@ impl Store {
     }
 }
 
-pub(crate) fn get_meta<T: DeserializeOwned>(connection: &Connection, key: &str) -> AppResult<Option<T>> {
+pub(crate) fn get_meta<T: DeserializeOwned>(
+    connection: &Connection,
+    key: &str,
+) -> AppResult<Option<T>> {
     connection
-        .query_row("SELECT value FROM meta WHERE key = ?1", params![key], |row| row.get::<_, String>(0))
+        .query_row(
+            "SELECT value FROM meta WHERE key = ?1",
+            params![key],
+            |row| row.get::<_, String>(0),
+        )
         .optional()?
         .map(|value| {
-            serde_json::from_str(&value)
-                .map_err(|error| AppError::InvalidData(format!("Damaged sync setting {key}: {error}")))
+            serde_json::from_str(&value).map_err(|error| {
+                AppError::InvalidData(format!("Damaged sync setting {key}: {error}"))
+            })
         })
         .transpose()
 }
 
-pub(crate) fn set_meta<T: Serialize + ?Sized>(connection: &Connection, key: &str, value: &T) -> AppResult<()> {
-    let value = serde_json::to_string(value)
-        .map_err(|error| AppError::InvalidData(format!("Unable to save sync setting {key}: {error}")))?;
+pub(crate) fn set_meta<T: Serialize + ?Sized>(
+    connection: &Connection,
+    key: &str,
+    value: &T,
+) -> AppResult<()> {
+    let value = serde_json::to_string(value).map_err(|error| {
+        AppError::InvalidData(format!("Unable to save sync setting {key}: {error}"))
+    })?;
     connection.execute(
         "INSERT INTO meta(key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         params![key, value],
@@ -216,16 +238,18 @@ pub(crate) fn delete_meta(connection: &Connection, key: &str) -> AppResult<()> {
 }
 
 fn to_json<T: Serialize>(value: &T) -> AppResult<String> {
-    serde_json::to_string(value).map_err(|error| AppError::InvalidData(format!("Unable to encode sync state: {error}")))
+    serde_json::to_string(value)
+        .map_err(|error| AppError::InvalidData(format!("Unable to encode sync state: {error}")))
 }
 
 fn from_json<T: DeserializeOwned>(value: &str) -> AppResult<T> {
-    serde_json::from_str(value).map_err(|error| AppError::InvalidData(format!("Damaged sync index: {error}")))
+    serde_json::from_str(value)
+        .map_err(|error| AppError::InvalidData(format!("Damaged sync index: {error}")))
 }
 
 pub(crate) fn load_index(connection: &Connection) -> AppResult<BTreeMap<String, IndexRow>> {
-    let mut statement =
-        connection.prepare("SELECT key, entry, fp_size, fp_mtime, unconfirmed, pending_apply FROM entries")?;
+    let mut statement = connection
+        .prepare("SELECT key, entry, fp_size, fp_mtime, unconfirmed, pending_apply FROM entries")?;
     let rows = statement.query_map([], |row| {
         Ok((
             row.get::<_, String>(0)?,
@@ -240,12 +264,20 @@ pub(crate) fn load_index(connection: &Connection) -> AppResult<BTreeMap<String, 
     for row in rows {
         let (key, entry, size, mtime, unconfirmed, pending) = row?;
         let fingerprint = match (size, mtime) {
-            (Some(size), Some(mtime_ns)) => Some(Fingerprint { size: size.max(0) as u64, mtime_ns }),
+            (Some(size), Some(mtime_ns)) => Some(Fingerprint {
+                size: size.max(0) as u64,
+                mtime_ns,
+            }),
             _ => None,
         };
         index.insert(
             key,
-            IndexRow { entry: from_json(&entry)?, fingerprint, unconfirmed: unconfirmed != 0, pending_apply: pending != 0 },
+            IndexRow {
+                entry: from_json(&entry)?,
+                fingerprint,
+                unconfirmed: unconfirmed != 0,
+                pending_apply: pending != 0,
+            },
         );
     }
     Ok(index)
@@ -266,7 +298,9 @@ pub(crate) fn write_index_changes(
         if before.get(key) == Some(row) {
             continue;
         }
-        let size = row.fingerprint.map(|fingerprint| i64::try_from(fingerprint.size).unwrap_or(i64::MAX));
+        let size = row
+            .fingerprint
+            .map(|fingerprint| i64::try_from(fingerprint.size).unwrap_or(i64::MAX));
         connection.execute(
             "INSERT INTO entries(key, entry, fp_size, fp_mtime, unconfirmed, pending_apply)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)
@@ -344,7 +378,15 @@ pub(crate) fn list_vaults(connection: &Connection) -> AppResult<Vec<VaultRow>> {
     let mut vaults = Vec::new();
     for row in rows {
         let (sync_id, scope_id, path, name, state, paused, message) = row?;
-        vaults.push(VaultRow { sync_id, scope_id, path, name, state: VaultState::parse(&state)?, paused: paused != 0, message });
+        vaults.push(VaultRow {
+            sync_id,
+            scope_id,
+            path,
+            name,
+            state: VaultState::parse(&state)?,
+            paused: paused != 0,
+            message,
+        });
     }
     Ok(vaults)
 }
@@ -388,7 +430,8 @@ pub(crate) fn list_conflicts(connection: &Connection) -> AppResult<Vec<ConflictR
     })?;
     let mut conflicts = Vec::new();
     for row in rows {
-        let (id, kind, key, vault_sync_id, plugin_id, local, remote, remote_device, detected_at) = row?;
+        let (id, kind, key, vault_sync_id, plugin_id, local, remote, remote_device, detected_at) =
+            row?;
         conflicts.push(ConflictRow {
             id,
             kind,
@@ -429,33 +472,54 @@ pub(crate) fn delete_conflicts_for_key(connection: &Connection, key: &str) -> Ap
 }
 
 pub(crate) fn list_suggestions(connection: &Connection) -> AppResult<Vec<(String, String)>> {
-    let mut statement = connection.prepare("SELECT plugin_id, from_device FROM suggestions ORDER BY plugin_id")?;
+    let mut statement =
+        connection.prepare("SELECT plugin_id, from_device FROM suggestions ORDER BY plugin_id")?;
     let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
 }
 
-pub(crate) fn set_suggestion(connection: &Connection, plugin_id: &str, from_device: Option<&str>) -> AppResult<()> {
+pub(crate) fn set_suggestion(
+    connection: &Connection,
+    plugin_id: &str,
+    from_device: Option<&str>,
+) -> AppResult<()> {
     match from_device {
         Some(device) => connection.execute(
             "INSERT INTO suggestions(plugin_id, from_device) VALUES (?1, ?2)
              ON CONFLICT(plugin_id) DO UPDATE SET from_device = excluded.from_device",
             params![plugin_id, device],
         )?,
-        None => connection.execute("DELETE FROM suggestions WHERE plugin_id = ?1", params![plugin_id])?,
+        None => connection.execute(
+            "DELETE FROM suggestions WHERE plugin_id = ?1",
+            params![plugin_id],
+        )?,
     };
     Ok(())
 }
 
 /// Renderer-pushed portable preferences; `None` records a removal.
-pub(crate) fn list_preferences(connection: &Connection) -> AppResult<BTreeMap<String, (Option<String>, i64)>> {
+pub(crate) fn list_preferences(
+    connection: &Connection,
+) -> AppResult<BTreeMap<String, (Option<String>, i64)>> {
     let mut statement = connection.prepare("SELECT key, value, updated_at FROM preferences")?;
-    let rows = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, (row.get(1)?, row.get(2)?))))?;
+    let rows = statement.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, (row.get(1)?, row.get(2)?)))
+    })?;
     Ok(rows.collect::<Result<BTreeMap<_, _>, _>>()?)
 }
 
-pub(crate) fn set_preference(connection: &Connection, key: &str, value: Option<&str>, updated_at: i64) -> AppResult<bool> {
+pub(crate) fn set_preference(
+    connection: &Connection,
+    key: &str,
+    value: Option<&str>,
+    updated_at: i64,
+) -> AppResult<bool> {
     let current: Option<Option<String>> = connection
-        .query_row("SELECT value FROM preferences WHERE key = ?1", params![key], |row| row.get(0))
+        .query_row(
+            "SELECT value FROM preferences WHERE key = ?1",
+            params![key],
+            |row| row.get(0),
+        )
         .optional()?;
     if current.as_ref().map(|value| value.as_deref()) == Some(value) {
         return Ok(false);
@@ -470,19 +534,32 @@ pub(crate) fn set_preference(connection: &Connection, key: &str, value: Option<&
 
 pub(crate) fn has_remote_object(connection: &Connection, id: &str) -> AppResult<bool> {
     Ok(connection
-        .query_row("SELECT 1 FROM remote_objects WHERE id = ?1", params![id], |_| Ok(()))
+        .query_row(
+            "SELECT 1 FROM remote_objects WHERE id = ?1",
+            params![id],
+            |_| Ok(()),
+        )
         .optional()?
         .is_some())
 }
 
 pub(crate) fn add_remote_object(connection: &Connection, id: &str) -> AppResult<()> {
-    connection.execute("INSERT OR IGNORE INTO remote_objects(id) VALUES (?1)", params![id])?;
+    connection.execute(
+        "INSERT OR IGNORE INTO remote_objects(id) VALUES (?1)",
+        params![id],
+    )?;
     Ok(())
 }
 
-pub(crate) fn begin_journal(connection: &Connection, phase: &str, started_at: &str) -> AppResult<Option<String>> {
+pub(crate) fn begin_journal(
+    connection: &Connection,
+    phase: &str,
+    started_at: &str,
+) -> AppResult<Option<String>> {
     let previous: Option<String> = connection
-        .query_row("SELECT phase FROM journal WHERE id = 1", [], |row| row.get(0))
+        .query_row("SELECT phase FROM journal WHERE id = 1", [], |row| {
+            row.get(0)
+        })
         .optional()?;
     connection.execute(
         "INSERT INTO journal(id, phase, started_at) VALUES (1, ?1, ?2)
@@ -515,7 +592,10 @@ mod tests {
                 origin: "a".repeat(32),
                 vv: BTreeMap::from([("a".repeat(32), counter)]),
             },
-            fingerprint: Some(Fingerprint { size: 3, mtime_ns: 9 }),
+            fingerprint: Some(Fingerprint {
+                size: 3,
+                mtime_ns: 9,
+            }),
             unconfirmed: false,
             pending_apply: counter % 2 == 0,
         }
@@ -543,8 +623,14 @@ mod tests {
             Err(AppError::State("synthetic failure".into()))
         });
         assert!(failed.is_err());
-        assert_eq!(load_index(&connection).unwrap(), after, "a failed cycle commits nothing");
-        store.transaction(|transaction| write_index_changes(transaction, &after, &next).map(|_| ())).unwrap();
+        assert_eq!(
+            load_index(&connection).unwrap(),
+            after,
+            "a failed cycle commits nothing"
+        );
+        store
+            .transaction(|transaction| write_index_changes(transaction, &after, &next).map(|_| ()))
+            .unwrap();
         assert_eq!(load_index(&connection).unwrap(), next);
         store.reset().unwrap();
         assert!(load_index(&connection).unwrap().is_empty());
@@ -558,6 +644,9 @@ mod tests {
         assert!(set_preference(&connection, "denote-theme", Some("dark"), 1).unwrap());
         assert!(!set_preference(&connection, "denote-theme", Some("dark"), 2).unwrap());
         assert!(set_preference(&connection, "denote-theme", None, 3).unwrap());
-        assert_eq!(list_preferences(&connection).unwrap()["denote-theme"], (None, 3));
+        assert_eq!(
+            list_preferences(&connection).unwrap()["denote-theme"],
+            (None, 3)
+        );
     }
 }

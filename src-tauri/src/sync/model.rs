@@ -60,16 +60,43 @@ pub(crate) struct Entry {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum EntryKind<'a> {
-    VaultFile { vault: &'a str, path: &'a str },
-    VaultMeta { vault: &'a str },
-    Note { vault: &'a str, path: &'a str },
-    Tag { vault: &'a str, tag: &'a str },
-    Project { vault: &'a str, root: &'a str },
-    History { vault: &'a str, id: &'a str },
-    Preference { key: &'a str },
-    PluginSetting { plugin: &'a str, key: &'a str },
-    PluginState { plugin: &'a str, key: &'a str },
-    PluginEnabled { plugin: &'a str },
+    VaultFile {
+        vault: &'a str,
+        path: &'a str,
+    },
+    VaultMeta {
+        vault: &'a str,
+    },
+    Note {
+        vault: &'a str,
+        path: &'a str,
+    },
+    Tag {
+        vault: &'a str,
+        tag: &'a str,
+    },
+    Project {
+        vault: &'a str,
+        root: &'a str,
+    },
+    History {
+        vault: &'a str,
+        id: &'a str,
+    },
+    Preference {
+        key: &'a str,
+    },
+    PluginSetting {
+        plugin: &'a str,
+        key: &'a str,
+    },
+    PluginState {
+        plugin: &'a str,
+        key: &'a str,
+    },
+    PluginEnabled {
+        plugin: &'a str,
+    },
     /// A kind from a newer format. Carried through unchanged, never applied.
     Unknown,
 }
@@ -85,7 +112,9 @@ impl<'a> EntryKind<'a> {
             ["v", vault, "note", path] if valid_id(vault) && valid_relative_path(path) => {
                 Self::Note { vault, path }
             }
-            ["v", vault, "tag", tag] if valid_id(vault) && valid_segment(tag) => Self::Tag { vault, tag },
+            ["v", vault, "tag", tag] if valid_id(vault) && valid_segment(tag) => {
+                Self::Tag { vault, tag }
+            }
             ["v", vault, "project", root]
                 if valid_id(vault) && (root.is_empty() || valid_relative_path(root)) =>
             {
@@ -101,7 +130,9 @@ impl<'a> EntryKind<'a> {
             ["plugin", plugin, "state", key] if valid_segment(plugin) && valid_segment(key) => {
                 Self::PluginState { plugin, key }
             }
-            ["plugin", plugin, "enabled"] if valid_segment(plugin) => Self::PluginEnabled { plugin },
+            ["plugin", plugin, "enabled"] if valid_segment(plugin) => {
+                Self::PluginEnabled { plugin }
+            }
             _ => Self::Unknown,
         }
     }
@@ -120,9 +151,9 @@ impl<'a> EntryKind<'a> {
 
     pub(crate) fn plugin(&self) -> Option<&'a str> {
         match self {
-            Self::PluginSetting { plugin, .. } | Self::PluginState { plugin, .. } | Self::PluginEnabled { plugin } => {
-                Some(plugin)
-            }
+            Self::PluginSetting { plugin, .. }
+            | Self::PluginState { plugin, .. }
+            | Self::PluginEnabled { plugin } => Some(plugin),
             _ => None,
         }
     }
@@ -143,11 +174,17 @@ pub(crate) fn is_manifest_key(key: &str) -> bool {
 }
 
 fn valid_id(value: &str) -> bool {
-    value.len() == 32 && value.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+    value.len() == 32
+        && value
+            .bytes()
+            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
 }
 
 fn valid_history_id(value: &str) -> bool {
-    value.len() == 64 && value.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
 }
 
 fn valid_segment(value: &str) -> bool {
@@ -185,8 +222,9 @@ pub(crate) struct Snapshot {
 impl Snapshot {
     /// Deflate-compressed JSON, ready for sealing.
     pub(crate) fn encode(&self) -> AppResult<Vec<u8>> {
-        let json = serde_json::to_vec(self)
-            .map_err(|error| AppError::InvalidData(format!("Unable to encode sync snapshot: {error}")))?;
+        let json = serde_json::to_vec(self).map_err(|error| {
+            AppError::InvalidData(format!("Unable to encode sync snapshot: {error}"))
+        })?;
         if json.len() as u64 > MAX_SNAPSHOT_BYTES {
             return Err(AppError::InvalidData(
                 "The sync snapshot exceeds the 64 MiB limit. Stop syncing a large vault or remove files."
@@ -198,25 +236,38 @@ impl Snapshot {
         Ok(encoder.finish()?)
     }
 
-    pub(crate) fn decode(bytes: &[u8], repository: &str, writer: &str, generation: u64) -> AppResult<Self> {
+    pub(crate) fn decode(
+        bytes: &[u8],
+        repository: &str,
+        writer: &str,
+        generation: u64,
+    ) -> AppResult<Self> {
         let mut json = Vec::new();
         DeflateDecoder::new(bytes)
             .take(MAX_SNAPSHOT_BYTES + 1)
             .read_to_end(&mut json)
             .map_err(|_| AppError::InvalidData("A sync snapshot is damaged".into()))?;
         if json.len() as u64 > MAX_SNAPSHOT_BYTES {
-            return Err(AppError::InvalidData("A sync snapshot exceeds the 64 MiB limit".into()));
+            return Err(AppError::InvalidData(
+                "A sync snapshot exceeds the 64 MiB limit".into(),
+            ));
         }
-        let snapshot: Snapshot = serde_json::from_slice(&json)
-            .map_err(|error| AppError::InvalidData(format!("A sync snapshot is invalid: {error}")))?;
+        let snapshot: Snapshot = serde_json::from_slice(&json).map_err(|error| {
+            AppError::InvalidData(format!("A sync snapshot is invalid: {error}"))
+        })?;
         if snapshot.format != FORMAT_VERSION {
             return Err(AppError::InvalidData(format!(
                 "Sync snapshot format {} is not supported",
                 snapshot.format
             )));
         }
-        if snapshot.repository != repository || snapshot.writer != writer || snapshot.generation != generation {
-            return Err(AppError::InvalidData("A sync snapshot does not match its location".into()));
+        if snapshot.repository != repository
+            || snapshot.writer != writer
+            || snapshot.generation != generation
+        {
+            return Err(AppError::InvalidData(
+                "A sync snapshot does not match its location".into(),
+            ));
         }
         if snapshot.entries.len() > MAX_ENTRIES || snapshot.device_name.len() > 256 {
             return Err(AppError::InvalidData("A sync snapshot is too large".into()));
@@ -230,28 +281,38 @@ impl Snapshot {
 
 pub(crate) fn validate_entry(key: &str, entry: &Entry) -> AppResult<()> {
     if key.is_empty() || key.len() > MAX_KEY_BYTES || key.chars().any(char::is_control) {
-        return Err(AppError::InvalidData("A sync entry has an invalid key".into()));
+        return Err(AppError::InvalidData(
+            "A sync entry has an invalid key".into(),
+        ));
     }
     validate_writer_id(&entry.origin)?;
     if entry.vv.is_empty() || entry.vv.len() > 10_000 {
-        return Err(AppError::InvalidData("A sync entry has an invalid version vector".into()));
+        return Err(AppError::InvalidData(
+            "A sync entry has an invalid version vector".into(),
+        ));
     }
     for (writer, counter) in &entry.vv {
         validate_writer_id(writer)?;
         if *counter == 0 {
-            return Err(AppError::InvalidData("A sync entry has an invalid version vector".into()));
+            return Err(AppError::InvalidData(
+                "A sync entry has an invalid version vector".into(),
+            ));
         }
     }
     match &entry.value {
         EntryValue::Object { id, size, .. } => {
             validate_object_id(id)?;
             if *size > super::crypto::MAX_FILE_BYTES {
-                return Err(AppError::InvalidData("A sync entry exceeds the file size limit".into()));
+                return Err(AppError::InvalidData(
+                    "A sync entry exceeds the file size limit".into(),
+                ));
             }
         }
         EntryValue::Inline { json } => {
             if json.to_string().len() > MAX_INLINE_BYTES {
-                return Err(AppError::InvalidData("A sync entry value is too large".into()));
+                return Err(AppError::InvalidData(
+                    "A sync entry value is too large".into(),
+                ));
             }
         }
         EntryValue::Tombstone => {}
@@ -270,18 +331,33 @@ mod tests {
     fn keys_parse_into_known_kinds_and_preserve_unknown_ones() {
         assert_eq!(
             EntryKind::parse(&format!("v/{VAULT}/f/notes/a.md")),
-            EntryKind::VaultFile { vault: VAULT, path: "notes/a.md" }
+            EntryKind::VaultFile {
+                vault: VAULT,
+                path: "notes/a.md"
+            }
         );
-        assert_eq!(EntryKind::parse(&format!("v/{VAULT}/meta")), EntryKind::VaultMeta { vault: VAULT });
+        assert_eq!(
+            EntryKind::parse(&format!("v/{VAULT}/meta")),
+            EntryKind::VaultMeta { vault: VAULT }
+        );
         assert_eq!(
             EntryKind::parse(&format!("v/{VAULT}/project/")),
-            EntryKind::Project { vault: VAULT, root: "" }
+            EntryKind::Project {
+                vault: VAULT,
+                root: ""
+            }
         );
         assert_eq!(
             EntryKind::parse("plugin/denote.git/settings/remoteName"),
-            EntryKind::PluginSetting { plugin: "denote.git", key: "remoteName" }
+            EntryKind::PluginSetting {
+                plugin: "denote.git",
+                key: "remoteName"
+            }
         );
-        assert_eq!(EntryKind::parse("plugin/denote.x/enabled"), EntryKind::PluginEnabled { plugin: "denote.x" });
+        assert_eq!(
+            EntryKind::parse("plugin/denote.x/enabled"),
+            EntryKind::PluginEnabled { plugin: "denote.x" }
+        );
         for key in [
             "future/kind",
             &format!("v/{VAULT}/f/../escape"),
@@ -300,7 +376,9 @@ mod tests {
         entries.insert(
             "future/kind".to_string(),
             Entry {
-                value: EntryValue::Inline { json: serde_json::json!({"x": 1}) },
+                value: EntryValue::Inline {
+                    json: serde_json::json!({"x": 1}),
+                },
                 modified_at: 1,
                 origin: WRITER.into(),
                 vv: BTreeMap::from([(WRITER.to_string(), 1)]),
@@ -317,7 +395,10 @@ mod tests {
             entries,
         };
         let encoded = snapshot.encode().unwrap();
-        assert_eq!(Snapshot::decode(&encoded, VAULT, WRITER, 2).unwrap(), snapshot);
+        assert_eq!(
+            Snapshot::decode(&encoded, VAULT, WRITER, 2).unwrap(),
+            snapshot
+        );
         assert!(Snapshot::decode(&encoded, VAULT, WRITER, 3).is_err());
         assert!(Snapshot::decode(&encoded, WRITER, WRITER, 2).is_err());
         assert!(Snapshot::decode(b"garbage", VAULT, WRITER, 2).is_err());

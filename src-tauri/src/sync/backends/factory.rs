@@ -38,5 +38,7 @@ pub(crate) fn connect_google(
 }
 
 fn unavailable(kind: &str) -> AppError {
-    AppError::State(format!("The {kind} sync backend is not available in this build."))
+    AppError::State(format!(
+        "The {kind} sync backend is not available in this build."
+    ))
 }

@@ -44,7 +44,9 @@ pub(crate) fn validate_key(key: &str) -> AppResult<()> {
     let valid = !key.is_empty()
         && key.len() <= MAX_KEY_LENGTH
         && key.bytes().all(|byte| {
-            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'.' | b'_' | b'/' | b'-')
+            byte.is_ascii_lowercase()
+                || byte.is_ascii_digit()
+                || matches!(byte, b'.' | b'_' | b'/' | b'-')
         })
         && key
             .split('/')
@@ -52,7 +54,9 @@ pub(crate) fn validate_key(key: &str) -> AppResult<()> {
     if valid {
         Ok(())
     } else {
-        Err(AppError::InvalidData(format!("Invalid sync storage key: {key}")))
+        Err(AppError::InvalidData(format!(
+            "Invalid sync storage key: {key}"
+        )))
     }
 }
 
@@ -70,10 +74,16 @@ mod tests {
 
     #[test]
     fn keys_are_confined() {
-        for key in ["repository.json", "objects/ab/abcdef", "heads/0123/00000000000000000001"] {
+        for key in [
+            "repository.json",
+            "objects/ab/abcdef",
+            "heads/0123/00000000000000000001",
+        ] {
             validate_key(key).unwrap();
         }
-        for key in ["", "/abs", "a//b", "../x", "a/./b", "Upper", "a b", "a\\b", "a/"] {
+        for key in [
+            "", "/abs", "a//b", "../x", "a/./b", "Upper", "a b", "a\\b", "a/",
+        ] {
             assert!(validate_key(key).is_err(), "{key}");
         }
         validate_prefix("").unwrap();

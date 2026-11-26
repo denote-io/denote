@@ -180,15 +180,26 @@ impl BackendConfig {
         match self {
             Self::Folder { path } => path.clone(),
             Self::Webdav { url } => url.clone(),
-            Self::S3 { endpoint, bucket, prefix, .. } => {
+            Self::S3 {
+                endpoint,
+                bucket,
+                prefix,
+                ..
+            } => {
                 if prefix.is_empty() {
                     format!("{bucket} ({endpoint})")
                 } else {
                     format!("{bucket}/{prefix} ({endpoint})")
                 }
             }
-            Self::GoogleDrive { folder_name, account_label, .. } => format!("{folder_name} ({account_label})"),
-            Self::Git { remote_url, branch, .. } => format!("{remote_url} ({branch})"),
+            Self::GoogleDrive {
+                folder_name,
+                account_label,
+                ..
+            } => format!("{folder_name} ({account_label})"),
+            Self::Git {
+                remote_url, branch, ..
+            } => format!("{remote_url} ({branch})"),
         }
     }
 }
@@ -237,14 +248,20 @@ impl Drop for GoogleConnection {
 
 pub(crate) fn bounded_field(value: &str, label: &str, allow_empty: bool) -> AppResult<String> {
     let trimmed = value.trim();
-    if (!allow_empty && trimmed.is_empty()) || trimmed.len() > MAX_FIELD_BYTES || trimmed.chars().any(char::is_control) {
+    if (!allow_empty && trimmed.is_empty())
+        || trimmed.len() > MAX_FIELD_BYTES
+        || trimmed.chars().any(char::is_control)
+    {
         return Err(AppError::InvalidData(format!("Enter a valid {label}")));
     }
     Ok(trimmed.to_string())
 }
 
 pub(crate) fn bounded_secret(value: &str, label: &str) -> AppResult<String> {
-    if value.is_empty() || value.len() > MAX_SECRET_BYTES || value.chars().any(|character| character == '\0') {
+    if value.is_empty()
+        || value.len() > MAX_SECRET_BYTES
+        || value.chars().any(|character| character == '\0')
+    {
         return Err(AppError::InvalidData(format!("Enter a valid {label}")));
     }
     Ok(value.to_string())
@@ -253,7 +270,9 @@ pub(crate) fn bounded_secret(value: &str, label: &str) -> AppResult<String> {
 pub(crate) fn validate_device_name(name: &str) -> AppResult<String> {
     let trimmed = name.trim();
     if trimmed.is_empty() || trimmed.chars().count() > 64 || trimmed.chars().any(char::is_control) {
-        return Err(AppError::InvalidData("Device names must contain 1 to 64 visible characters".into()));
+        return Err(AppError::InvalidData(
+            "Device names must contain 1 to 64 visible characters".into(),
+        ));
     }
     Ok(trimmed.to_string())
 }
@@ -277,10 +296,24 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(request.mode, SetupMode::Join);
-        assert!(matches!(request.backend, SyncBackendRequest::S3 { path_style: true, .. }));
-        let vault: SyncVaultRequest =
-            serde_json::from_value(serde_json::json!({"action": "map-existing", "syncId": "a", "scopeId": "b"})).unwrap();
-        assert_eq!(vault, SyncVaultRequest::MapExisting { sync_id: "a".into(), scope_id: "b".into() });
+        assert!(matches!(
+            request.backend,
+            SyncBackendRequest::S3 {
+                path_style: true,
+                ..
+            }
+        ));
+        let vault: SyncVaultRequest = serde_json::from_value(
+            serde_json::json!({"action": "map-existing", "syncId": "a", "scopeId": "b"}),
+        )
+        .unwrap();
+        assert_eq!(
+            vault,
+            SyncVaultRequest::MapExisting {
+                sync_id: "a".into(),
+                scope_id: "b".into()
+            }
+        );
         assert!(
             serde_json::from_value::<SyncOptions>(serde_json::json!({
                 "intervalMinutes": 5, "paused": false, "syncHistory": true,
@@ -292,13 +325,31 @@ mod tests {
             "kind": "git", "remoteUrl": "https://example.invalid/r.git", "branch": "main", "authMode": "ssh-agent"
         }))
         .unwrap();
-        assert!(matches!(git, SyncBackendRequest::Git { auth_mode: GitAuthMode::SshAgent, .. }));
+        assert!(matches!(
+            git,
+            SyncBackendRequest::Git {
+                auth_mode: GitAuthMode::SshAgent,
+                ..
+            }
+        ));
     }
 
     #[test]
     fn options_and_names_are_bounded() {
-        assert!(SyncOptions { interval_minutes: 1441, ..SyncOptions::default() }.validate().is_err());
-        SyncOptions { interval_minutes: 0, ..SyncOptions::default() }.validate().unwrap();
+        assert!(
+            SyncOptions {
+                interval_minutes: 1441,
+                ..SyncOptions::default()
+            }
+            .validate()
+            .is_err()
+        );
+        SyncOptions {
+            interval_minutes: 0,
+            ..SyncOptions::default()
+        }
+        .validate()
+        .unwrap();
         assert!(validate_device_name(" ").is_err());
         assert!(validate_device_name(&"x".repeat(65)).is_err());
         assert_eq!(validate_device_name(" Desk ").unwrap(), "Desk");

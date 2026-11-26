@@ -18,15 +18,27 @@ pub(crate) struct MemoryBackend {
 
 impl MemoryBackend {
     pub(crate) fn keys(&self) -> Vec<String> {
-        self.values.lock().expect("memory backend").keys().cloned().collect()
+        self.values
+            .lock()
+            .expect("memory backend")
+            .keys()
+            .cloned()
+            .collect()
     }
 
     pub(crate) fn raw(&self, key: &str) -> Option<Vec<u8>> {
-        self.values.lock().expect("memory backend").get(key).cloned()
+        self.values
+            .lock()
+            .expect("memory backend")
+            .get(key)
+            .cloned()
     }
 
     pub(crate) fn set_raw(&self, key: &str, bytes: Vec<u8>) {
-        self.values.lock().expect("memory backend").insert(key.to_string(), bytes);
+        self.values
+            .lock()
+            .expect("memory backend")
+            .insert(key.to_string(), bytes);
     }
 
     pub(crate) fn remove_raw(&self, key: &str) {
@@ -35,7 +47,10 @@ impl MemoryBackend {
 
     /// Every operation on a key starting with `prefix` fails until cleared.
     pub(crate) fn fail_prefix(&self, prefix: &str) {
-        self.failing.lock().expect("memory backend").insert(prefix.to_string());
+        self.failing
+            .lock()
+            .expect("memory backend")
+            .insert(prefix.to_string());
     }
 
     pub(crate) fn clear_failures(&self) {
@@ -50,13 +65,17 @@ impl MemoryBackend {
             .iter()
             .any(|prefix| key.starts_with(prefix.as_str()))
         {
-            return Err(AppError::State(format!("Synthetic backend failure for {key}")));
+            return Err(AppError::State(format!(
+                "Synthetic backend failure for {key}"
+            )));
         }
         Ok(())
     }
 
     fn values(&self) -> AppResult<std::sync::MutexGuard<'_, BTreeMap<String, Vec<u8>>>> {
-        self.values.lock().map_err(|_| AppError::State("memory backend poisoned".into()))
+        self.values
+            .lock()
+            .map_err(|_| AppError::State("memory backend poisoned".into()))
     }
 }
 
@@ -81,7 +100,12 @@ impl Backend for MemoryBackend {
     fn list(&self, prefix: &str) -> AppResult<Vec<String>> {
         validate_prefix(prefix)?;
         self.check(prefix)?;
-        Ok(self.values()?.keys().filter(|key| key.starts_with(prefix)).cloned().collect())
+        Ok(self
+            .values()?
+            .keys()
+            .filter(|key| key.starts_with(prefix))
+            .cloned()
+            .collect())
     }
 
     fn delete(&self, key: &str) -> AppResult<()> {

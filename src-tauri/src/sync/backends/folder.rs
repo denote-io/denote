@@ -25,7 +25,9 @@ impl FolderBackend {
     /// `root` must be an existing absolute folder that is not a symbolic link.
     pub(crate) fn open(root: &Path) -> AppResult<Self> {
         validate_folder(root)?;
-        Ok(Self { root: root.to_path_buf() })
+        Ok(Self {
+            root: root.to_path_buf(),
+        })
     }
 
     fn data_root(&self) -> PathBuf {
@@ -72,14 +74,18 @@ impl FolderBackend {
 
     fn ensure_root(&self) -> AppResult<()> {
         validate_folder(&self.root).map_err(|_| {
-            AppError::NotFound("The sync folder is unavailable. Reconnect the drive or choose it again.".into())
+            AppError::NotFound(
+                "The sync folder is unavailable. Reconnect the drive or choose it again.".into(),
+            )
         })
     }
 }
 
 fn validate_folder(root: &Path) -> AppResult<()> {
     if !root.is_absolute() {
-        return Err(AppError::InvalidPath("The sync folder must be an absolute path".into()));
+        return Err(AppError::InvalidPath(
+            "The sync folder must be an absolute path".into(),
+        ));
     }
     let metadata = fs::symlink_metadata(root)
         .map_err(|_| AppError::NotFound("The sync folder does not exist".into()))?;
@@ -101,12 +107,16 @@ impl Backend for FolderBackend {
             Err(error) => return Err(error.into()),
         };
         if !file.metadata()?.is_file() {
-            return Err(AppError::InvalidData(format!("Sync storage entry {key} is not a file")));
+            return Err(AppError::InvalidData(format!(
+                "Sync storage entry {key} is not a file"
+            )));
         }
         let mut bytes = Vec::new();
         file.take(MAX_VALUE_BYTES + 1).read_to_end(&mut bytes)?;
         if bytes.len() as u64 > MAX_VALUE_BYTES {
-            return Err(AppError::InvalidData(format!("Sync storage entry {key} is too large")));
+            return Err(AppError::InvalidData(format!(
+                "Sync storage entry {key} is too large"
+            )));
         }
         Ok(Some(bytes))
     }
@@ -124,7 +134,10 @@ impl Backend for FolderBackend {
         self.ensure_no_links(&path)?;
         let temporary = self.temporary()?;
         let written = (|| -> std::io::Result<()> {
-            let mut file = fs::OpenOptions::new().write(true).create_new(true).open(&temporary)?;
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&temporary)?;
             file.write_all(bytes)?;
             file.sync_all()
         })();
@@ -136,7 +149,9 @@ impl Backend for FolderBackend {
             PutMode::Overwrite => fs::rename(&temporary, &path).map(|()| PutOutcome::Written),
             PutMode::CreateOnly => match crate::vault::rename_no_replace(&temporary, &path) {
                 Ok(()) => Ok(PutOutcome::Written),
-                Err(error) if error.kind() == ErrorKind::AlreadyExists => Ok(PutOutcome::AlreadyExists),
+                Err(error) if error.kind() == ErrorKind::AlreadyExists => {
+                    Ok(PutOutcome::AlreadyExists)
+                }
                 Err(error) => Err(error),
             },
         };
@@ -155,7 +170,11 @@ impl Backend for FolderBackend {
             Some(index) => &prefix[..index],
             None => "",
         };
-        let start = if directory_part.is_empty() { data_root.clone() } else { data_root.join(directory_part) };
+        let start = if directory_part.is_empty() {
+            data_root.clone()
+        } else {
+            data_root.join(directory_part)
+        };
         self.ensure_no_links(&start)?;
         if !start.exists() {
             return Ok(Vec::new());
@@ -171,10 +190,9 @@ impl Backend for FolderBackend {
             if !item.file_type().is_file() {
                 continue;
             }
-            let relative = item
-                .path()
-                .strip_prefix(&data_root)
-                .map_err(|_| AppError::InvalidPath("Sync storage path escaped its folder".into()))?;
+            let relative = item.path().strip_prefix(&data_root).map_err(|_| {
+                AppError::InvalidPath("Sync storage path escaped its folder".into())
+            })?;
             let Some(key) = relative.to_str().map(|value| value.replace('\\', "/")) else {
                 continue;
             };
@@ -204,7 +222,14 @@ mod tests {
     fn folder_backend_meets_the_contract() {
         let directory = tempfile::tempdir().unwrap();
         crate::sync::backend_tests::conformance(&FolderBackend::open(directory.path()).unwrap());
-        assert!(!directory.path().join(TEMPORARY_DIRECTORY).read_dir().unwrap().any(|_| true));
+        assert!(
+            !directory
+                .path()
+                .join(TEMPORARY_DIRECTORY)
+                .read_dir()
+                .unwrap()
+                .any(|_| true)
+        );
     }
 
     #[test]
@@ -225,7 +250,11 @@ mod tests {
             let outside = directory.path().join("outside");
             fs::create_dir(&outside).unwrap();
             std::os::unix::fs::symlink(&outside, target.join("denote-sync/v1/objects")).unwrap();
-            assert!(backend.put("objects/ab/x", b"x", PutMode::Overwrite).is_err());
+            assert!(
+                backend
+                    .put("objects/ab/x", b"x", PutMode::Overwrite)
+                    .is_err()
+            );
             assert!(backend.list("objects/").is_err());
             assert!(!outside.join("ab").exists());
         }

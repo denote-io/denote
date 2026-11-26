@@ -54,7 +54,9 @@ pub(crate) fn conflict_copy_path(path: &str, object_id: &str) -> String {
         None => (None, path),
     };
     let renamed = match name.rsplit_once('.') {
-        Some((stem, extension)) if !stem.is_empty() => format!("{stem}.sync-conflict-{tag}.{extension}"),
+        Some((stem, extension)) if !stem.is_empty() => {
+            format!("{stem}.sync-conflict-{tag}.{extension}")
+        }
         _ => format!("{name}.sync-conflict-{tag}"),
     };
     match directory {
@@ -87,15 +89,28 @@ fn later(left: &Entry, right: &Entry) -> Ordering {
 
 /// Merges one key. `local_unconfirmed` makes the local entry concurrent with every
 /// remote entry (restored, cloned, or newly mapped state).
-pub(crate) fn merge_key(key: &str, local: Option<&Entry>, local_unconfirmed: bool, remotes: &[&Entry]) -> KeyMerge {
-    let mut candidates: Vec<Candidate<'_>> = local.map(|entry| Candidate { entry, local: true }).into_iter().collect();
-    candidates.extend(remotes.iter().map(|entry| Candidate { entry, local: false }));
+pub(crate) fn merge_key(
+    key: &str,
+    local: Option<&Entry>,
+    local_unconfirmed: bool,
+    remotes: &[&Entry],
+) -> KeyMerge {
+    let mut candidates: Vec<Candidate<'_>> = local
+        .map(|entry| Candidate { entry, local: true })
+        .into_iter()
+        .collect();
+    candidates.extend(remotes.iter().map(|entry| Candidate {
+        entry,
+        local: false,
+    }));
     if candidates.is_empty() {
         return KeyMerge::default();
     }
     let merged_vv = candidates
         .iter()
-        .fold(VersionVector::new(), |vv, candidate| pointwise_max(&vv, &candidate.entry.vv));
+        .fold(VersionVector::new(), |vv, candidate| {
+            pointwise_max(&vv, &candidate.entry.vv)
+        });
 
     let exempt = |candidate: &Candidate<'_>| candidate.local && local_unconfirmed;
     let maximal: Vec<&Candidate<'_>> = candidates
@@ -112,7 +127,10 @@ pub(crate) fn merge_key(key: &str, local: Option<&Entry>, local_unconfirmed: boo
     // One representative per distinct value, chosen deterministically.
     let mut distinct: Vec<(&Entry, bool)> = Vec::new();
     for candidate in &maximal {
-        match distinct.iter_mut().find(|(entry, _)| entry.value == candidate.entry.value) {
+        match distinct
+            .iter_mut()
+            .find(|(entry, _)| entry.value == candidate.entry.value)
+        {
             Some((entry, local)) => {
                 *local |= candidate.local;
                 if later(candidate.entry, entry) == Ordering::Greater {
@@ -122,10 +140,16 @@ pub(crate) fn merge_key(key: &str, local: Option<&Entry>, local_unconfirmed: boo
             None => distinct.push((candidate.entry, candidate.local)),
         }
     }
-    if distinct.iter().any(|(entry, _)| !entry.value.is_tombstone()) {
+    if distinct
+        .iter()
+        .any(|(entry, _)| !entry.value.is_tombstone())
+    {
         distinct.retain(|(entry, _)| !entry.value.is_tombstone());
     }
-    let with_vv = |entry: &Entry| Entry { vv: merged_vv.clone(), ..entry.clone() };
+    let with_vv = |entry: &Entry| Entry {
+        vv: merged_vv.clone(),
+        ..entry.clone()
+    };
     if distinct.len() == 1 {
         return KeyMerge {
             entry: Some(with_vv(distinct[0].0)),
@@ -136,7 +160,10 @@ pub(crate) fn merge_key(key: &str, local: Option<&Entry>, local_unconfirmed: boo
     let kind = EntryKind::parse(key);
 
     if is_manifest_key(key) {
-        let remote_choice = distinct.iter().find(|(_, local)| !local).map(|(entry, _)| (*entry).clone());
+        let remote_choice = distinct
+            .iter()
+            .find(|(_, local)| !local)
+            .map(|(entry, _)| (*entry).clone());
         return KeyMerge {
             entry: local.cloned(),
             pending: remote_choice.into_iter().collect(),
@@ -144,7 +171,10 @@ pub(crate) fn merge_key(key: &str, local: Option<&Entry>, local_unconfirmed: boo
             ..KeyMerge::default()
         };
     }
-    if matches!(kind, EntryKind::PluginSetting { .. } | EntryKind::PluginState { .. }) {
+    if matches!(
+        kind,
+        EntryKind::PluginSetting { .. } | EntryKind::PluginState { .. }
+    ) {
         let kept = distinct
             .iter()
             .find(|(_, local)| *local)
@@ -166,10 +196,12 @@ pub(crate) fn merge_key(key: &str, local: Option<&Entry>, local_unconfirmed: boo
         EntryKind::VaultFile { vault, path } => distinct[1..]
             .iter()
             .filter_map(|(entry, _)| {
-                entry
-                    .value
-                    .object_id()
-                    .map(|id| (file_key(vault, &conflict_copy_path(path, id)), (*entry).clone()))
+                entry.value.object_id().map(|id| {
+                    (
+                        file_key(vault, &conflict_copy_path(path, id)),
+                        (*entry).clone(),
+                    )
+                })
             })
             .collect(),
         _ => Vec::new(),
@@ -211,7 +243,10 @@ pub(crate) fn merge_state(
             }
             continue;
         }
-        let remote_entries: Vec<&Entry> = remotes.iter().filter_map(|remote| remote.get(key)).collect();
+        let remote_entries: Vec<&Entry> = remotes
+            .iter()
+            .filter_map(|remote| remote.get(key))
+            .collect();
         let merged = merge_key(key, local_entry, unconfirmed(key), &remote_entries);
         if merged.pause_vault
             && let Some(vault) = EntryKind::parse(key).vault()
@@ -249,13 +284,18 @@ pub(crate) fn merge_state(
                 .vault()
                 .is_some_and(|vault| result.paused_vaults.contains(vault))
         };
-        result.entries.retain(|key, _| !paused(key) || local.contains_key(key));
+        result
+            .entries
+            .retain(|key, _| !paused(key) || local.contains_key(key));
         for (key, entry) in local.iter().filter(|(key, _)| paused(key)) {
             result.entries.insert(key.clone(), entry.clone());
         }
         let paused_vaults = result.paused_vaults.clone();
         result.pending.retain(|(key, _)| {
-            !EntryKind::parse(key).vault().is_some_and(|vault| paused_vaults.contains(vault)) || is_manifest_key(key)
+            !EntryKind::parse(key)
+                .vault()
+                .is_some_and(|vault| paused_vaults.contains(vault))
+                || is_manifest_key(key)
         });
     }
     result
@@ -272,12 +312,19 @@ mod tests {
     const C: &str = "cccccccccccccccccccccccccccccccc";
 
     fn vv(pairs: &[(&str, u64)]) -> VersionVector {
-        pairs.iter().map(|(writer, counter)| (writer.to_string(), *counter)).collect()
+        pairs
+            .iter()
+            .map(|(writer, counter)| (writer.to_string(), *counter))
+            .collect()
     }
 
     fn object(id_byte: char, modified_at: i64, origin: &str, pairs: &[(&str, u64)]) -> Entry {
         Entry {
-            value: EntryValue::Object { id: id_byte.to_string().repeat(64), size: 1, mode: 0o644 },
+            value: EntryValue::Object {
+                id: id_byte.to_string().repeat(64),
+                size: 1,
+                mode: 0o644,
+            },
             modified_at,
             origin: origin.into(),
             vv: vv(pairs),
@@ -285,11 +332,26 @@ mod tests {
     }
 
     fn tombstone(modified_at: i64, origin: &str, pairs: &[(&str, u64)]) -> Entry {
-        Entry { value: EntryValue::Tombstone, modified_at, origin: origin.into(), vv: vv(pairs) }
+        Entry {
+            value: EntryValue::Tombstone,
+            modified_at,
+            origin: origin.into(),
+            vv: vv(pairs),
+        }
     }
 
-    fn inline(value: serde_json::Value, modified_at: i64, origin: &str, pairs: &[(&str, u64)]) -> Entry {
-        Entry { value: EntryValue::Inline { json: value }, modified_at, origin: origin.into(), vv: vv(pairs) }
+    fn inline(
+        value: serde_json::Value,
+        modified_at: i64,
+        origin: &str,
+        pairs: &[(&str, u64)],
+    ) -> Entry {
+        Entry {
+            value: EntryValue::Inline { json: value },
+            modified_at,
+            origin: origin.into(),
+            vv: vv(pairs),
+        }
     }
 
     fn file(path: &str) -> String {
@@ -300,18 +362,39 @@ mod tests {
     fn version_vectors_compare_and_merge_pointwise() {
         assert_eq!(compare(&vv(&[(A, 1)]), &vv(&[(A, 1)])), VvOrder::Equal);
         assert_eq!(compare(&vv(&[(A, 2)]), &vv(&[(A, 1)])), VvOrder::Dominates);
-        assert_eq!(compare(&vv(&[(A, 1)]), &vv(&[(A, 1), (B, 1)])), VvOrder::DominatedBy);
-        assert_eq!(compare(&vv(&[(A, 2)]), &vv(&[(A, 1), (B, 1)])), VvOrder::Concurrent);
-        assert_eq!(pointwise_max(&vv(&[(A, 2), (C, 1)]), &vv(&[(A, 1), (B, 4)])), vv(&[(A, 2), (B, 4), (C, 1)]));
+        assert_eq!(
+            compare(&vv(&[(A, 1)]), &vv(&[(A, 1), (B, 1)])),
+            VvOrder::DominatedBy
+        );
+        assert_eq!(
+            compare(&vv(&[(A, 2)]), &vv(&[(A, 1), (B, 1)])),
+            VvOrder::Concurrent
+        );
+        assert_eq!(
+            pointwise_max(&vv(&[(A, 2), (C, 1)]), &vv(&[(A, 1), (B, 4)])),
+            vv(&[(A, 2), (B, 4), (C, 1)])
+        );
     }
 
     #[test]
     fn conflict_copy_names_are_deterministic() {
         let id = "1234abcd".repeat(8);
-        assert_eq!(conflict_copy_path("notes/a.md", &id), "notes/a.sync-conflict-1234abcd.md");
-        assert_eq!(conflict_copy_path("README", &id), "README.sync-conflict-1234abcd");
-        assert_eq!(conflict_copy_path(".env", &id), ".env.sync-conflict-1234abcd");
-        assert_eq!(conflict_copy_path("a.tar.gz", &id), "a.tar.sync-conflict-1234abcd.gz");
+        assert_eq!(
+            conflict_copy_path("notes/a.md", &id),
+            "notes/a.sync-conflict-1234abcd.md"
+        );
+        assert_eq!(
+            conflict_copy_path("README", &id),
+            "README.sync-conflict-1234abcd"
+        );
+        assert_eq!(
+            conflict_copy_path(".env", &id),
+            ".env.sync-conflict-1234abcd"
+        );
+        assert_eq!(
+            conflict_copy_path("a.tar.gz", &id),
+            "a.tar.sync-conflict-1234abcd.gz"
+        );
         assert_eq!(
             conflict_copy_path(".denote/note-comments.json", &id),
             ".denote/note-comments.sync-conflict-1234abcd.json"
@@ -334,7 +417,9 @@ mod tests {
         // Equal values with concurrent vectors converge on the maximum without a local increment.
         let same_a = object('1', 10, A, &[(A, 2)]);
         let same_b = object('1', 12, B, &[(B, 3)]);
-        let merged = merge_key(&key, Some(&same_a), false, &[&same_b]).entry.unwrap();
+        let merged = merge_key(&key, Some(&same_a), false, &[&same_b])
+            .entry
+            .unwrap();
         assert_eq!(merged.vv, vv(&[(A, 2), (B, 3)]));
         assert_eq!(merged.origin, B);
         assert!(merge_key(&key, None, false, &[]).entry.is_none());
@@ -353,13 +438,22 @@ mod tests {
         assert_eq!(winner.vv, vv(&[(A, 2), (B, 1)]));
         assert_eq!(left.conflict_copies.len(), 1);
         let (copy_key, copy) = &left.conflict_copies[0];
-        assert_eq!(copy_key, &file(&format!("dir/a.sync-conflict-{}.md", "1".repeat(8))));
+        assert_eq!(
+            copy_key,
+            &file(&format!("dir/a.sync-conflict-{}.md", "1".repeat(8)))
+        );
         assert_eq!(copy.value, local.value);
 
         // Same timestamp: the higher object id wins.
         let tie_a = object('3', 10, A, &[(A, 1)]);
         let tie_b = object('4', 10, B, &[(B, 1)]);
-        assert_eq!(merge_key(&key, Some(&tie_a), false, &[&tie_b]).entry.unwrap().value, tie_b.value);
+        assert_eq!(
+            merge_key(&key, Some(&tie_a), false, &[&tie_b])
+                .entry
+                .unwrap()
+                .value,
+            tie_b.value
+        );
     }
 
     #[test]
@@ -378,7 +472,13 @@ mod tests {
         }
         // A dominating tombstone still deletes.
         let later_delete = tombstone(1, A, &[(A, 2), (B, 1)]);
-        assert!(merge_key(&key, Some(&edited), false, &[&later_delete]).entry.unwrap().value.is_tombstone());
+        assert!(
+            merge_key(&key, Some(&edited), false, &[&later_delete])
+                .entry
+                .unwrap()
+                .value
+                .is_tombstone()
+        );
     }
 
     #[test]
@@ -479,7 +579,9 @@ mod tests {
         let mut remote = BTreeMap::new();
         remote.insert(file("a.md"), object('2', 1, B, &[(A, 1), (B, 1)]));
         remote.insert("future/kind".to_string(), inline(json!(1), 1, B, &[(B, 1)]));
-        let merged = merge_state(&local, &|_| false, &[&remote], &|key| key.starts_with("future"));
+        let merged = merge_state(&local, &|_| false, &[&remote], &|key| {
+            key.starts_with("future")
+        });
         assert_eq!(merged.entries.get(&file("a.md")), local.get(&file("a.md")));
         assert!(merged.entries.contains_key("future/kind"));
     }

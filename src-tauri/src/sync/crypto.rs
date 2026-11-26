@@ -78,8 +78,7 @@ impl HeaderKdf {
             || !(1..=8).contains(&self.parallelism)
         {
             return Err(AppError::Crypto(
-                "Sync repository key-derivation parameters are outside the supported bounds"
-                    .into(),
+                "Sync repository key-derivation parameters are outside the supported bounds".into(),
             ));
         }
         Ok(())
@@ -153,9 +152,9 @@ impl Keys {
 
     /// Keyed content identifier: equal plaintext deduplicates without exposing a plain hash.
     pub(crate) fn object_id(&self, plaintext: &[u8]) -> AppResult<String> {
-        let mut mac = self.object_hasher()?;
-        mac.update(plaintext);
-        Ok(hex::encode(mac.finalize().into_bytes()))
+        let mut hasher = self.object_hasher()?;
+        hasher.update(plaintext);
+        Ok(hasher.finish())
     }
 
     pub(crate) fn object_hasher(&self) -> AppResult<ObjectHasher> {
@@ -163,7 +162,11 @@ impl Keys {
     }
 
     /// Streams `reader` into an object ID, refusing more than `limit` bytes.
-    pub(crate) fn object_id_reader(&self, reader: &mut dyn Read, limit: u64) -> AppResult<(String, u64)> {
+    pub(crate) fn object_id_reader(
+        &self,
+        reader: &mut dyn Read,
+        limit: u64,
+    ) -> AppResult<(String, u64)> {
         let mut hasher = self.object_hasher()?;
         let mut buffer = vec![0u8; 64 * 1024];
         let mut total = 0u64;
@@ -193,8 +196,12 @@ impl Keys {
     /// Decrypts and then recomputes the object ID in constant time.
     pub(crate) fn open_object(&self, id: &str, envelope: &[u8]) -> AppResult<Vec<u8>> {
         validate_object_id(id)?;
-        if envelope.len() as u64 > MAX_FILE_BYTES + (OBJECT_MAGIC.len() + NONCE_BYTES + TAG_BYTES) as u64 {
-            return Err(AppError::InvalidData("Sync object exceeds the size limit".into()));
+        if envelope.len() as u64
+            > MAX_FILE_BYTES + (OBJECT_MAGIC.len() + NONCE_BYTES + TAG_BYTES) as u64
+        {
+            return Err(AppError::InvalidData(
+                "Sync object exceeds the size limit".into(),
+            ));
         }
         let aad = self.aad(OBJECT_MAGIC, &[id.as_bytes()]);
         let plaintext = open(&self.enc, OBJECT_MAGIC, &aad, envelope)?;
@@ -207,15 +214,31 @@ impl Keys {
         Ok(plaintext)
     }
 
-    pub(crate) fn seal_head(&self, writer: &str, generation: u64, plaintext: &[u8]) -> AppResult<Vec<u8>> {
+    pub(crate) fn seal_head(
+        &self,
+        writer: &str,
+        generation: u64,
+        plaintext: &[u8],
+    ) -> AppResult<Vec<u8>> {
         let generation = generation.to_string();
-        let aad = self.aad(HEAD_MAGIC, &[b"head", writer.as_bytes(), generation.as_bytes()]);
+        let aad = self.aad(
+            HEAD_MAGIC,
+            &[b"head", writer.as_bytes(), generation.as_bytes()],
+        );
         seal(&self.head, HEAD_MAGIC, &aad, plaintext)
     }
 
-    pub(crate) fn open_head(&self, writer: &str, generation: u64, envelope: &[u8]) -> AppResult<Vec<u8>> {
+    pub(crate) fn open_head(
+        &self,
+        writer: &str,
+        generation: u64,
+        envelope: &[u8],
+    ) -> AppResult<Vec<u8>> {
         let generation = generation.to_string();
-        let aad = self.aad(HEAD_MAGIC, &[b"head", writer.as_bytes(), generation.as_bytes()]);
+        let aad = self.aad(
+            HEAD_MAGIC,
+            &[b"head", writer.as_bytes(), generation.as_bytes()],
+        );
         open(&self.head, HEAD_MAGIC, &aad, envelope)
     }
 
@@ -270,10 +293,13 @@ pub(crate) fn create_header_with_kdf(
 
 pub(crate) fn parse_header(bytes: &[u8]) -> AppResult<RepositoryHeader> {
     if bytes.len() > MAX_HEADER_BYTES {
-        return Err(AppError::InvalidData("Sync repository header is too large".into()));
+        return Err(AppError::InvalidData(
+            "Sync repository header is too large".into(),
+        ));
     }
-    let header: RepositoryHeader = serde_json::from_slice(bytes)
-        .map_err(|error| AppError::InvalidData(format!("Invalid sync repository header: {error}")))?;
+    let header: RepositoryHeader = serde_json::from_slice(bytes).map_err(|error| {
+        AppError::InvalidData(format!("Invalid sync repository header: {error}"))
+    })?;
     if header.format != FORMAT_VERSION {
         return Err(AppError::InvalidData(format!(
             "Sync repository format {} is not supported by this Denote version",
@@ -319,12 +345,26 @@ pub(crate) fn unwrap_master(header: &RepositoryHeader, passphrase: &str) -> AppR
 }
 
 /// Rewraps the same master key under a new passphrase and fresh salt.
-pub(crate) fn rewrap(header: &RepositoryHeader, master: &MasterKey, passphrase: &str) -> AppResult<RepositoryHeader> {
+pub(crate) fn rewrap(
+    header: &RepositoryHeader,
+    master: &MasterKey,
+    passphrase: &str,
+) -> AppResult<RepositoryHeader> {
     validate_password(passphrase)?;
-    wrap(passphrase, master, header.repository_id.clone(), header.kdf.clone())
+    wrap(
+        passphrase,
+        master,
+        header.repository_id.clone(),
+        header.kdf.clone(),
+    )
 }
 
-fn wrap(passphrase: &str, master: &MasterKey, repository_id: String, kdf: HeaderKdf) -> AppResult<RepositoryHeader> {
+fn wrap(
+    passphrase: &str,
+    master: &MasterKey,
+    repository_id: String,
+    kdf: HeaderKdf,
+) -> AppResult<RepositoryHeader> {
     let salt = random_array::<16>()?;
     let nonce = random_array::<NONCE_BYTES>()?;
     let key = derive_password_key(passphrase.as_bytes(), &salt, &kdf.config())?;
@@ -352,18 +392,30 @@ fn wrap_aad(repository_id: &str) -> String {
 }
 
 pub(crate) fn validate_object_id(id: &str) -> AppResult<()> {
-    if id.len() == 64 && id.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f')) {
+    if id.len() == 64
+        && id
+            .bytes()
+            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+    {
         Ok(())
     } else {
-        Err(AppError::InvalidData("Invalid sync object identifier".into()))
+        Err(AppError::InvalidData(
+            "Invalid sync object identifier".into(),
+        ))
     }
 }
 
 pub(crate) fn validate_writer_id(id: &str) -> AppResult<()> {
-    if id.len() == 32 && id.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f')) {
+    if id.len() == 32
+        && id
+            .bytes()
+            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+    {
         Ok(())
     } else {
-        Err(AppError::InvalidData("Invalid sync writer identifier".into()))
+        Err(AppError::InvalidData(
+            "Invalid sync writer identifier".into(),
+        ))
     }
 }
 
@@ -397,7 +449,13 @@ fn cipher(key: &[u8; 32]) -> AppResult<XChaCha20Poly1305> {
 fn seal(key: &[u8; 32], magic: &[u8; 4], aad: &[u8], plaintext: &[u8]) -> AppResult<Vec<u8>> {
     let nonce = random_array::<NONCE_BYTES>()?;
     let ciphertext = cipher(key)?
-        .encrypt(&XNonce::from(nonce), Payload { msg: plaintext, aad })
+        .encrypt(
+            &XNonce::from(nonce),
+            Payload {
+                msg: plaintext,
+                aad,
+            },
+        )
         .map_err(|_| AppError::Crypto("Sync encryption failed".into()))?;
     let mut envelope = Vec::with_capacity(magic.len() + NONCE_BYTES + ciphertext.len());
     envelope.extend_from_slice(magic);
@@ -441,7 +499,11 @@ fn decode_fixed<const N: usize>(value: &str, label: &str) -> AppResult<[u8; N]> 
 
 #[cfg(test)]
 pub(crate) fn test_keys() -> Keys {
-    Keys::derive(&MasterKey::from_bytes([7u8; 32]), "0123456789abcdef0123456789abcdef").unwrap()
+    Keys::derive(
+        &MasterKey::from_bytes([7u8; 32]),
+        "0123456789abcdef0123456789abcdef",
+    )
+    .unwrap()
 }
 
 #[cfg(test)]
@@ -455,14 +517,19 @@ mod tests {
         let (header, master) = create_header(PASSPHRASE).unwrap();
         let parsed = parse_header(&serialize_header(&header).unwrap()).unwrap();
         assert_eq!(parsed, header);
-        assert_eq!(unwrap_master(&parsed, PASSPHRASE).unwrap().bytes(), master.bytes());
+        assert_eq!(
+            unwrap_master(&parsed, PASSPHRASE).unwrap().bytes(),
+            master.bytes()
+        );
         assert!(unwrap_master(&parsed, "another synthetic passphrase").is_err());
 
         let next = rewrap(&parsed, &master, "replacement synthetic passphrase").unwrap();
         assert_eq!(next.repository_id, header.repository_id);
         assert_ne!(next.salt, header.salt);
         assert_eq!(
-            unwrap_master(&next, "replacement synthetic passphrase").unwrap().bytes(),
+            unwrap_master(&next, "replacement synthetic passphrase")
+                .unwrap()
+                .bytes(),
             master.bytes()
         );
         assert!(unwrap_master(&next, PASSPHRASE).is_err());
@@ -472,7 +539,13 @@ mod tests {
     #[test]
     fn header_kdf_parameters_are_bounded_before_any_work() {
         let (header, _) = create_header(PASSPHRASE).unwrap();
-        for (memory, iterations, parallelism) in [(1024, 2, 1), (2 * 1024 * 1024, 2, 1), (19456, 0, 1), (19456, 11, 1), (19456, 2, 9)] {
+        for (memory, iterations, parallelism) in [
+            (1024, 2, 1),
+            (2 * 1024 * 1024, 2, 1),
+            (19456, 0, 1),
+            (19456, 11, 1),
+            (19456, 2, 9),
+        ] {
             let mut damaged = header.clone();
             damaged.kdf.memory_kib = memory;
             damaged.kdf.iterations = iterations;
@@ -505,27 +578,42 @@ mod tests {
 
         // A correctly authenticated envelope under the wrong ID label still fails the recomputation.
         let forged = keys.seal_object(&other, b"synthetic note").unwrap();
-        assert!(keys.open_object(&other, &forged).unwrap_err().to_string().contains("does not match"));
+        assert!(
+            keys.open_object(&other, &forged)
+                .unwrap_err()
+                .to_string()
+                .contains("does not match")
+        );
 
         let writer = "00112233445566778899aabbccddeeff";
         let head = keys.seal_head(writer, 3, b"snapshot").unwrap();
         assert_eq!(&head[..4], b"DSH1");
         assert_eq!(keys.open_head(writer, 3, &head).unwrap(), b"snapshot");
         assert!(keys.open_head(writer, 4, &head).is_err());
-        assert!(keys.open_head("ffffffffffffffffffffffffffffffff", 3, &head).is_err());
+        assert!(
+            keys.open_head("ffffffffffffffffffffffffffffffff", 3, &head)
+                .is_err()
+        );
         assert!(keys.open_retirement(writer, &head).is_err());
 
-        let foreign = Keys::derive(&MasterKey::from_bytes([7u8; 32]), "ffffffffffffffffffffffffffffffff").unwrap();
+        let foreign = Keys::derive(
+            &MasterKey::from_bytes([7u8; 32]),
+            "ffffffffffffffffffffffffffffffff",
+        )
+        .unwrap();
         assert_eq!(foreign.object_id(b"synthetic note").unwrap(), id);
         assert!(foreign.open_object(&id, &sealed).is_err());
-        let different_master = Keys::derive(&MasterKey::from_bytes([8u8; 32]), keys.repository_id()).unwrap();
+        let different_master =
+            Keys::derive(&MasterKey::from_bytes([8u8; 32]), keys.repository_id()).unwrap();
         assert_ne!(different_master.object_id(b"synthetic note").unwrap(), id);
     }
 
     #[test]
     fn streaming_ids_match_and_enforce_limits() {
         let keys = test_keys();
-        let (id, size) = keys.object_id_reader(&mut &b"streamed content"[..], 1024).unwrap();
+        let (id, size) = keys
+            .object_id_reader(&mut &b"streamed content"[..], 1024)
+            .unwrap();
         assert_eq!(id, keys.object_id(b"streamed content").unwrap());
         assert_eq!(size, 16);
         assert!(keys.object_id_reader(&mut &[0u8; 32][..], 8).is_err());
