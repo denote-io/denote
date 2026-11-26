@@ -275,6 +275,7 @@ permission, and are registered in `src-tauri/src/lib.rs`:
 | `sync_retire_device` | Retire another writer |
 | `sync_change_passphrase` | Rewrap the master key |
 | `sync_disconnect` | Remove local configuration and secrets |
+| `sync_choose_folder` | Open the host folder chooser for a folder backend (`purpose: "backend"`) or a `map-new` vault folder (`purpose: "vault"`); returns the absolute path or `null` when cancelled |
 
 Events: `denote://sync-status` carries the status view, and
 `denote://sync-applied` lists the vault roots, preference keys, and plugin IDs a
@@ -356,6 +357,7 @@ interface SyncStatusView {
 // sync_retire_device(pluginId, writerId: string) -> SyncStatusView
 // sync_change_passphrase(pluginId, current: string, next: string) -> SyncStatusView
 // sync_disconnect(pluginId) -> SyncStatusView
+// sync_choose_folder(pluginId, purpose: "backend" | "vault") -> string | null
 // event "denote://sync-status": SyncStatusView
 // event "denote://sync-applied": { vaultRoots: string[];
 //        preferences: Record<string, string | null>; pluginIds: string[] }
@@ -365,3 +367,46 @@ The portable preference allowlist is `denote-theme`, `denote-editor-display`,
 `denote-markdown-view-mode`, `denote-show-dotfiles`,
 `denote.speech-shortcut.v1`, and `denote.plugin-rail.v1`. The host rejects
 other keys.
+
+## Renderer integration
+
+The renderer side lives in `src/lib/sync.ts` (payload types and validators),
+`src/lib/api.ts` (command and event wrappers), `src/components/SyncPanel.tsx`,
+`src/lib/syncPreferences.ts`, and `src/lib/useSyncBridge.ts`.
+
+- **Tool visibility.** The worker's `sensitiveTools.register({ feature: "sync" })`
+  produces an activity-rail entry and sidebar like the other sensitive tools,
+  but the tool is app-wide: `usePlugins` and `PluginWorkerRuntime` keep it
+  across vault switches and while the open vault is locked, and `sync` is not a
+  content permission, so the worker keeps running. Without a usable sidebar (no
+  vault open, or a locked encrypted vault) the Welcome screen, the locked-vault
+  screen, and the **Sync** command open the same panel in a dialog. Stopping
+  the worker for any reason, including an orderly disable, update, or settings
+  reload, calls `stop_sensitive_tools`.
+- **Panel.** Every action calls one command and renders the returned status;
+  `denote://sync-status` keeps it current. Secrets (passphrases, WebDAV and S3
+  secrets, the Google connection token) live only in uncontrolled password
+  inputs or a ref, are read once on submit, and the inputs are cleared before
+  the command resolves, on failure, and on unmount. `sync_run` resolves when the
+  cycle ends, so **Cancel sync** stays available while it is pending.
+- **Pushing preferences.** Each writer of an allowlisted key calls
+  `notifySyncPreferenceChanged` after `localStorage.setItem`. While a sync tool
+  is registered and the latest status is configured with `syncPreferences`
+  enabled, `useSyncBridge` pushes the complete allowlist map (absent keys as
+  `null`) through `sync_put_preferences`, debounced by 1.5 seconds. It pushes the
+  full map once whenever that condition becomes true, for example right after
+  setup or when the option is turned on, and never echoes values it just
+  applied. The host must treat each push as a snapshot and bump version vectors
+  only for keys whose value differs from its index.
+- **Applying a cycle.** On `denote://sync-applied` the renderer writes the
+  received allowlisted values (`null` removes the key; other keys and non-string
+  values are ignored), updates live state for theme, editor display, dotfile
+  visibility, the dictation shortcut, and the activity rail, and leaves the
+  default Markdown view to seed vaults without their own mode. When
+  `vaultRoots` contains the open vault's root (the exact `WorkspaceSnapshot.vaultPath`
+  string), it runs the same refresh as regaining window focus: the tree is
+  reloaded, clean tabs reload from disk, and dirty tabs report a conflict. For
+  each running plugin in `pluginIds`, except sync plugins, it reuses the
+  settings-save path: refresh the plugin list, stop the worker, and start it
+  again with its imported settings. Plugins are never disabled or enabled to
+  apply synced data.
