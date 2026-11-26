@@ -11,6 +11,7 @@ mod models;
 mod paths;
 mod plugins;
 mod sensitive;
+mod sync;
 mod updater;
 mod vault;
 
