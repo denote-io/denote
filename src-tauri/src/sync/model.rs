@@ -199,10 +199,6 @@ pub(crate) fn file_key(vault: &str, path: &str) -> String {
     format!("v/{vault}/f/{path}")
 }
 
-pub(crate) fn vault_prefix(vault: &str) -> String {
-    format!("v/{vault}/")
-}
-
 pub(crate) fn is_manifest_key(key: &str) -> bool {
     matches!(EntryKind::parse(key), EntryKind::VaultFile { path, .. } if path == ENCRYPTION_MANIFEST_PATH)
 }

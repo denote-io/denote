@@ -682,7 +682,7 @@ mod tests {
                 origin: "a".repeat(32),
                 vv: vv.clone(),
             },
-            observed: (counter % 2 == 0).then(|| Observed {
+            observed: counter.is_multiple_of(2).then_some(Observed {
                 value: EntryValue::Tombstone,
                 vv,
             }),

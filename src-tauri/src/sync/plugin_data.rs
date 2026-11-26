@@ -83,10 +83,6 @@ pub(crate) mod fake {
             );
         }
 
-        pub(crate) fn disable(&self, plugin_id: &str) {
-            self.plugins.lock().unwrap().remove(plugin_id);
-        }
-
         pub(crate) fn view(&self, plugin_id: &str) -> Option<PluginDataView> {
             self.plugins.lock().unwrap().get(plugin_id).cloned()
         }

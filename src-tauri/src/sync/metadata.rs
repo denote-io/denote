@@ -5,7 +5,6 @@ use std::collections::BTreeMap;
 
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use super::{
     model::{EntryValue, decode_segment, encode_segment, valid_relative_path},
@@ -462,15 +461,6 @@ pub(crate) fn apply(
     Ok(())
 }
 
-/// Convenience for tests and diagnostics: the JSON of an inline value.
-#[cfg(test)]
-pub(crate) fn inline_json(value: &EntryValue) -> Option<&Value> {
-    match value {
-        EntryValue::Inline { json } => Some(json),
-        _ => None,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -543,7 +533,6 @@ mod tests {
             )
             .is_err()
         );
-        assert!(inline_json(&bad).is_some());
     }
 
     #[test]

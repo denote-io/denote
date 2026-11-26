@@ -252,9 +252,12 @@ pub(crate) enum BackendSecrets {
 pub(crate) struct BackendContext {
     /// `sync/` in application data. Transports keep private state only under
     /// `sync_dir/backends/<kind>/`, which Disconnect removes.
+    #[allow(dead_code, reason = "read by the network transports")]
     pub sync_dir: PathBuf,
     /// Set when the running cycle is cancelled.
+    #[allow(dead_code, reason = "read by the network transports")]
     pub cancel: Arc<AtomicBool>,
+    #[allow(dead_code, reason = "read by the Git transport")]
     pub plugins: Option<crate::plugins::PluginManager>,
     /// Every known vault root; a transport's private data may not overlap them.
     pub vault_roots: Vec<PathBuf>,

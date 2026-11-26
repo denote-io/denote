@@ -5,7 +5,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
 };
 
-use super::model::{Entry, EntryKind, EntryValue, VersionVector, file_key, is_manifest_key};
+use super::model::{Entry, EntryKind, VersionVector, file_key, is_manifest_key};
 
 const MAX_COPY_ROUNDS: usize = 8;
 
@@ -312,6 +312,7 @@ pub(crate) fn merge_state(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sync::model::EntryValue;
     use serde_json::json;
 
     const V: &str = "0123456789abcdef0123456789abcdef";

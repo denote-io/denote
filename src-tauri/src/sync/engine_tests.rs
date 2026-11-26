@@ -729,3 +729,38 @@ fn cancelled_cycles_commit_nothing_and_unknown_entries_are_carried() {
     assert_eq!(published.vaults[VAULT], "Notes");
     assert!(published.entries.contains_key(&file_key(VAULT, "a.md")));
 }
+
+#[test]
+fn storage_failures_abort_the_cycle_and_are_never_read_as_deletions() {
+    let backend = MemoryBackend::default();
+    let keys = repository(&backend);
+    let laptop = Device::new("Laptop", &keys);
+    let desk = Device::new("Desk", &keys);
+    let (laptop_root, laptop_scope) = laptop.add_vault("Notes");
+    let (desk_root, desk_scope) = desk.add_vault("Notes");
+    laptop.map(VAULT, &laptop_scope);
+    desk.map(VAULT, &desk_scope);
+    write(&laptop_root, "a.md", "alpha");
+
+    backend.fail_prefix("objects/");
+    let (result, _) = laptop.try_sync(&backend, &keys, false);
+    assert!(result.is_err());
+    assert!(
+        store::load_index(&laptop.store.connection().unwrap())
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(laptop.identity().generation, 0);
+    backend.clear_failures();
+    laptop.sync(&backend, &keys);
+    desk.sync(&backend, &keys);
+    assert_eq!(tree(&desk_root), tree(&laptop_root));
+
+    // A failing listing is an error, never an empty remote.
+    backend.fail_prefix("heads/");
+    let (result, _) = desk.try_sync(&backend, &keys, false);
+    assert!(result.is_err());
+    backend.clear_failures();
+    assert_eq!(fs::read_to_string(desk_root.join("a.md")).unwrap(), "alpha");
+    assert_eq!(desk.sync(&backend, &keys).published, None);
+}

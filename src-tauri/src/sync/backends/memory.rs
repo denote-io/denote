@@ -17,28 +17,12 @@ pub(crate) struct MemoryBackend {
 }
 
 impl MemoryBackend {
-    pub(crate) fn keys(&self) -> Vec<String> {
-        self.values
-            .lock()
-            .expect("memory backend")
-            .keys()
-            .cloned()
-            .collect()
-    }
-
     pub(crate) fn raw(&self, key: &str) -> Option<Vec<u8>> {
         self.values
             .lock()
             .expect("memory backend")
             .get(key)
             .cloned()
-    }
-
-    pub(crate) fn set_raw(&self, key: &str, bytes: Vec<u8>) {
-        self.values
-            .lock()
-            .expect("memory backend")
-            .insert(key.to_string(), bytes);
     }
 
     pub(crate) fn remove_raw(&self, key: &str) {

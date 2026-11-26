@@ -1,8 +1,6 @@
 //! Repository header, key hierarchy, and authenticated envelopes for sync.
 //! See `docs/sync.md` ("Cryptography").
 
-use std::io::Read;
-
 use base64::{Engine, engine::general_purpose::STANDARD};
 use chacha20poly1305::{
     XChaCha20Poly1305, XNonce,
@@ -159,32 +157,6 @@ impl Keys {
 
     pub(crate) fn object_hasher(&self) -> AppResult<ObjectHasher> {
         Ok(ObjectHasher(new_mac(&self.mac[..])?))
-    }
-
-    /// Streams `reader` into an object ID, refusing more than `limit` bytes.
-    pub(crate) fn object_id_reader(
-        &self,
-        reader: &mut dyn Read,
-        limit: u64,
-    ) -> AppResult<(String, u64)> {
-        let mut hasher = self.object_hasher()?;
-        let mut buffer = vec![0u8; 64 * 1024];
-        let mut total = 0u64;
-        loop {
-            let read = reader.read(&mut buffer)?;
-            if read == 0 {
-                break;
-            }
-            total += read as u64;
-            if total > limit {
-                return Err(AppError::InvalidData(format!(
-                    "File exceeds the {} MiB sync limit",
-                    limit / (1024 * 1024)
-                )));
-            }
-            hasher.update(&buffer[..read]);
-        }
-        Ok((hasher.finish(), total))
     }
 
     pub(crate) fn seal_object(&self, id: &str, plaintext: &[u8]) -> AppResult<Vec<u8>> {
@@ -606,16 +578,5 @@ mod tests {
         let different_master =
             Keys::derive(&MasterKey::from_bytes([8u8; 32]), keys.repository_id()).unwrap();
         assert_ne!(different_master.object_id(b"synthetic note").unwrap(), id);
-    }
-
-    #[test]
-    fn streaming_ids_match_and_enforce_limits() {
-        let keys = test_keys();
-        let (id, size) = keys
-            .object_id_reader(&mut &b"streamed content"[..], 1024)
-            .unwrap();
-        assert_eq!(id, keys.object_id(b"streamed content").unwrap());
-        assert_eq!(size, 16);
-        assert!(keys.object_id_reader(&mut &[0u8; 32][..], 8).is_err());
     }
 }

@@ -26,6 +26,10 @@ pub(crate) trait Backend: Send + Sync {
     /// Every key under `prefix`, following all pagination. Order is unspecified.
     /// Failures are errors, never an empty result.
     fn list(&self, prefix: &str) -> AppResult<Vec<String>>;
+    #[allow(
+        dead_code,
+        reason = "format 1 never deletes remote data; the conformance suite covers it"
+    )]
     fn delete(&self, key: &str) -> AppResult<()>;
     /// Make remote state visible locally (Git: fetch and rebase).
     fn refresh(&self) -> AppResult<()> {
