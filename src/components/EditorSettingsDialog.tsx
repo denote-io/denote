@@ -72,6 +72,8 @@ interface EditorSettingsDialogProps {
     tool: "git" | "github-cli",
   ) => Promise<string | null>;
   onPluginError: (error: unknown) => void;
+  /** Section to show when the dialog opens, for example plugins from the Sync panel. */
+  requestedSection?: "editor" | "plugins" | "security";
   onClose: () => void;
 }
 
@@ -115,6 +117,7 @@ export function EditorSettingsDialog({
   gitSigningActions,
   onPickPluginExecutable,
   onPluginError,
+  requestedSection,
   onClose,
 }: EditorSettingsDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -127,12 +130,13 @@ export function EditorSettingsDialog({
       return;
     }
     if (open && !dialog.open) {
+      if (requestedSection) setSection(requestedSection);
       dialog.showModal();
       window.setTimeout(() => firstControlRef.current?.focus(), 0);
     } else if (!open && dialog.open) {
       dialog.close();
     }
-  }, [open]);
+  }, [open, requestedSection]);
 
   const updateGuide = (
     key: Exclude<keyof EditorDisplaySettings, "fontSize" | "tabSize">,

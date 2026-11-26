@@ -334,10 +334,12 @@ import {
   resolveTheme,
   saveThemePreference,
   systemTheme,
+  THEME_STORAGE_KEY,
   type Theme,
   type ThemePreference,
 } from "./lib/theme";
 import { usePlugins } from "./plugins/usePlugins";
+import { useSyncBridge } from "./lib/useSyncBridge";
 import { NoteGraphCoordinator } from "./plugins/noteGraphCoordinator";
 import { useAutomaticLocalCommits } from "./plugins/useAutomaticLocalCommits";
 import { resolveCommitMessage } from "./plugins/commitMessages";
@@ -428,6 +430,12 @@ const AdvancedAuthoring = lazy(() =>
 );
 const CredentialStorePanel = lazy(() =>
   import("./components/CredentialStorePanel").then((module) => ({ default: module.CredentialStorePanel })),
+);
+const SyncPanel = lazy(() =>
+  import("./components/SyncPanel").then((module) => ({ default: module.SyncPanel })),
+);
+const SyncDialog = lazy(() =>
+  import("./components/SyncPanel").then((module) => ({ default: module.SyncDialog })),
 );
 
 const DESIGN_CONTRACT = `<!--
@@ -1812,6 +1820,33 @@ function Workspace({ appLock }: { appLock: AppLockActions }) {
     sensitiveTools.find((tool) => tool.feature === "credential-store") ?? null;
   const speechTool = activeSensitiveTool?.feature === "speech" ? activeSensitiveTool :
     sensitiveTools.find((tool) => tool.feature === "speech") ?? null;
+  const syncTool = activeSensitiveTool?.feature === "sync" ? activeSensitiveTool :
+    sensitiveTools.find((tool) => tool.feature === "sync") ?? null;
+  const [syncDialogOpen, setSyncDialogOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<"plugins" | undefined>(undefined);
+  useEffect(() => { if (!syncTool) setSyncDialogOpen(false); }, [syncTool]);
+  useSyncBridge({
+    pluginId: syncTool?.pluginId ?? null,
+    onError: showError,
+    onApplied: (event, changed) => {
+      if (changed.includes(THEME_STORAGE_KEY)) setThemePreference(getThemePreference());
+      if (changed.includes("denote-editor-display")) setEditorDisplaySettings(getEditorDisplaySettings());
+      if (changed.includes("denote-show-dotfiles")) {
+        const next = getShowDotfiles();
+        showDotfilesRef.current = next;
+        setShowDotfiles(next);
+      }
+      if (changed.includes("denote.speech-shortcut.v1")) {
+        try { setSpeechShortcutSettings({ value: loadSpeechShortcut(navigator.platform), error: null }); }
+        catch { showError("The synced dictation shortcut is invalid. The previous shortcut stays active."); }
+      }
+      // The default Markdown view mode only seeds vaults without their own
+      // mode, and the activity rail observes its own key.
+      const vault = workspaceVaultPathRef.current;
+      if (vault && event.vaultRoots.includes(vault)) void refreshExternalWorkspaceRef.current().catch(showError);
+      if (event.pluginIds.length) void pluginController.reloadSyncedPlugins(event.pluginIds);
+    },
+  });
   const [speechContainer, setSpeechContainer] = useState<HTMLElement | null>(null);
   const speechOpeners = useRef(new Map<string, { vault: string; path: string; open: (dictation: boolean) => void }>());
   const sensitiveSidebarScope = useRef<{ id: string; vault: string } | null>(null);
@@ -1819,6 +1854,16 @@ function Workspace({ appLock }: { appLock: AppLockActions }) {
     showSidebarView("files");
     setActivePluginSidebar(id);
   }, [showSidebarView]);
+  const syncInSidebar = workspace !== null && (!workspace.encryption.enabled || workspace.encryption.unlocked);
+  const openSync = useCallback(() => {
+    if (!syncTool) return;
+    if (syncInSidebar) showPluginSidebar(syncTool.id);
+    else setSyncDialogOpen(true);
+  }, [syncTool, syncInSidebar, showPluginSidebar]);
+  const openPluginSettings = useCallback(() => {
+    setSettingsSection("plugins");
+    setEditorSettingsOpen(true);
+  }, []);
   const openSpeech = useCallback((dictation = false) => {
     if (!speechTool) return;
     const entry = speechOpeners.current.get(paneStateRef.current.focusedPaneId);
@@ -1836,8 +1881,10 @@ function Workspace({ appLock }: { appLock: AppLockActions }) {
   useEffect(() => {
     const previous = sensitiveSidebarScope.current;
     const available = workspace && (!workspace.encryption.enabled || workspace.encryption.unlocked);
+    // Sync is app-wide: it stays open across vault switches.
+    const appWide = activeSensitiveTool?.feature === "sync";
     if (previous?.id === activePluginSidebar &&
-        (!activeSensitiveTool || !available || previous.vault !== workspace?.vaultPath)) {
+        (!activeSensitiveTool || !available || (!appWide && previous.vault !== workspace?.vaultPath))) {
       showSidebarView("files");
       clearCredentialLink();
     }
@@ -9906,6 +9953,11 @@ function Workspace({ appLock }: { appLock: AppLockActions }) {
     },
   ];
   commandPaletteCommands.push(
+    ...(syncTool ? [{
+      id: "host.sensitive.sync", title: "Sync",
+      description: "Set up, run, or review end-to-end encrypted sync of all vaults and preferences.", category: "Application",
+      run: openSync,
+    }] : []),
     ...(credentialTool ? [{
       id: "host.sensitive.credential-store", title: "Credential store",
       description: "Open the independently encrypted credential store.", category: "Vault",
@@ -10316,9 +10368,16 @@ function Workspace({ appLock }: { appLock: AppLockActions }) {
       }}
       onPickPluginExecutable={api.choosePluginExecutable}
       onPluginError={showError}
-      onClose={() => setEditorSettingsOpen(false)}
+      requestedSection={settingsSection}
+      onClose={() => { setEditorSettingsOpen(false); setSettingsSection(undefined); }}
     />
   );
+  const syncDialog = syncTool && syncDialogOpen ? (
+    <Suspense fallback={null}>
+      <SyncDialog open pluginId={syncTool.pluginId} onClose={() => setSyncDialogOpen(false)}
+        onOpenPluginSettings={openPluginSettings} />
+    </Suspense>
+  ) : null;
 
   if (!workspace) {
     return (
@@ -10335,7 +10394,9 @@ function Workspace({ appLock }: { appLock: AppLockActions }) {
           loading={initializing}
           onChooseVault={chooseVault}
           onShowRecentVaults={() => setVaultSwitcherOpen(true)}
+          onOpenSync={syncTool ? openSync : undefined}
         />
+        {syncDialog}
         {vaultSwitcherDialog}
         {commandPalette}
         {aboutDialog}
@@ -10367,7 +10428,9 @@ function Workspace({ appLock }: { appLock: AppLockActions }) {
           onUnlockWithRecoveryCode={(recoveryCode) =>
             unlockEncryptedVault(recoveryCode, true)
           }
+          onOpenSync={syncTool ? openSync : undefined}
         />
+        {syncDialog}
         {vaultSwitcherDialog}
         {commandPalette}
         {aboutDialog}
@@ -11026,6 +11089,11 @@ function Workspace({ appLock }: { appLock: AppLockActions }) {
               workspaceScope={workspace.vaultPath} onClose={() => showSidebarView("files")}
               onLock={clearCredentialLink}
               onOpenService={(url) => openWebLinksWithPolicy([url], externalDomainPolicy, undefined, true)} />
+          </Suspense>
+        ) : activeSensitiveTool?.feature === "sync" ? (
+          <Suspense fallback={<p role="status">Opening sync…</p>}>
+            <SyncPanel key={activeSensitiveTool.pluginId} pluginId={activeSensitiveTool.pluginId}
+              onClose={() => showSidebarView("files")} onOpenPluginSettings={openPluginSettings} />
           </Suspense>
         ) : activeSensitiveTool?.feature === "speech" && !workspaceLocked ? (
           <div className="sidebar-view" ref={setSpeechContainer}>

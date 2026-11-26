@@ -1091,7 +1091,11 @@ export function usePlugins(
   }, [refresh, reportError]);
 
   const reloadSyncedPlugins = useCallback(async (pluginIds: string[]) => {
-    for (const pluginId of new Set(pluginIds)) {
+    const ids = [...new Set(pluginIds)];
+    if (!ids.length) return;
+    // Plugins that are not running still show their imported settings.
+    await refresh().catch(reportError);
+    for (const pluginId of ids) {
       const plugin = pluginsRef.current.find((entry) => entry.catalog.manifest.id === pluginId);
       if (!plugin?.enabled || plugin.approvedPermissions.some((permission) => permission.capability === "sync") ||
           !runtimeRef.current?.isRunning(pluginId)) {
@@ -1100,7 +1104,7 @@ export function usePlugins(
       try { await withBusy(pluginId, () => reloadSettings(pluginId)); }
       catch (error) { reportError(error); }
     }
-  }, [reloadSettings, reportError, withBusy]);
+  }, [refresh, reloadSettings, reportError, withBusy]);
 
   const updateSettings = useCallback(
     async (pluginId: string, settings: Record<string, unknown>) => {
