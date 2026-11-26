@@ -588,9 +588,7 @@ fn xml_texts(body: &[u8]) -> Option<Vec<(Vec<String>, String)>> {
     loop {
         match reader.read_event().ok()? {
             Event::Start(element) => {
-                stack.push(
-                    String::from_utf8_lossy(element.local_name().as_ref()).to_ascii_lowercase(),
-                );
+                stack.push(element.local_name().as_ref().to_ascii_lowercase());
                 current.clear();
                 if stack.len() > 32 {
                     return None;
@@ -603,7 +601,7 @@ fn xml_texts(body: &[u8]) -> Option<Vec<(Vec<String>, String)>> {
                 stack.pop()?;
             }
             Event::Text(content) => current.push_str(&content.xml10_content()),
-            Event::CData(content) => current.push_str(&String::from_utf8_lossy(content.as_ref())),
+            Event::CData(content) => current.push_str(content.as_ref()),
             Event::GeneralRef(reference) => match reference.resolve_char_ref() {
                 Ok(Some(character)) => current.push(character),
                 Ok(None) => current.push_str(match reference.xml10_content().as_ref() {

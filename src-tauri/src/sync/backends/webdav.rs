@@ -386,8 +386,7 @@ fn parse_multistatus(body: &[u8]) -> AppResult<Vec<(String, bool)>> {
                 &content.xml10_content(),
             ),
             Event::CData(content) => {
-                let content = String::from_utf8_lossy(content.as_ref()).into_owned();
-                append_text(&stack, &mut href, &mut propstat_status, &content);
+                append_text(&stack, &mut href, &mut propstat_status, content.as_ref());
             }
             Event::GeneralRef(reference) => {
                 let resolved = match reference.resolve_char_ref() {
@@ -435,8 +434,8 @@ fn append_text(stack: &[String], href: &mut String, status: &mut String, text: &
     }
 }
 
-fn local_name(name: &[u8]) -> String {
-    String::from_utf8_lossy(name).to_ascii_lowercase()
+fn local_name(name: &str) -> String {
+    name.to_ascii_lowercase()
 }
 
 #[cfg(test)]
