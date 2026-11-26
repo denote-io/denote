@@ -8,7 +8,8 @@ enabling anything.
 Each plugin starts as a compact row showing only its name and current status.
 Sidebar tools have recognizable activity-rail icons: a terminal prompt for
 Ghostty terminal, a document and magnifying glass for Linter, a circuit board for
-Build and compiler, and braces for Code intelligence. **Organize plugins** uses
+Build and compiler, braces for Code intelligence, and circular arrows for Sync.
+**Organize plugins** uses
 the same icons when you reorder, group or hide those views.
 Open the row to see its description, version, publisher, permissions, guide,
 settings, and enable, update, disable, or cleanup actions. Entries with an error
@@ -507,6 +508,32 @@ OS-owned copies cannot be reliably zeroized. Review the
 before storing sensitive data.
 
 Try [Credential store practice](<../plugins/Credential store.md>).
+
+## Whole-app sync
+
+Enable **Whole-app sync** under **Productivity** to replicate every vault you
+enroll, portable preferences, revision history, and plugin data between your
+devices. Storage can be a local or mounted folder, WebDAV, an S3-compatible
+bucket such as MinIO, SeaweedFS, or Cloudflare R2, Google Drive, or a dedicated
+Git repository. Everything is end-to-end encrypted with a sync passphrase that
+cannot be recovered.
+
+Its single **Sync** permission only adds the host-rendered **Sync** panel to the
+activity rail, the command palette, and the Welcome and locked-vault screens.
+Denote's trusted host stores credentials in the operating-system keychain and
+performs all encryption, storage access, and file changes. Plugin code never
+receives vault content, paths, preferences, plugin data, credentials, or the
+passphrase. Sync works whichever vault is open, even a locked encrypted one,
+and stops while Denote is locked or in safe mode.
+
+Sync never installs or enables plugins. Plugins enabled on other devices are
+listed as suggestions that link to **Settings → Plugins**. Disabling the plugin
+stops sync and keeps its configuration; **Disconnect** removes this device's
+configuration and stored credentials. Neither deletes local files or remote
+data.
+
+Read the [Sync guide](<Sync.md>) for setup with each kind of storage,
+conflicts, devices, and passphrase changes.
 
 ## Time tracking
 

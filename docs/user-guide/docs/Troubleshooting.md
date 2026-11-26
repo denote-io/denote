@@ -76,6 +76,19 @@ When another application changes an open file, Denote reports a conflict
 instead of overwriting either version. Compare both versions and keep the one
 you want. Use **History** to restore one of the last ten saved versions.
 
+## Sync reports a problem
+
+| Symptom | What to do |
+| --- | --- |
+| **Locked until you enter the sync passphrase** | Unlock in the Sync panel. Turn on **Remember the passphrase on this device** to skip this after restarts. |
+| Authentication, network, or storage errors | Check the storage URL, credentials, and the computer's clock. Sync retries later and never treats an unreachable storage as deleted data. |
+| A vault shows **Folder unavailable** | Reconnect the drive or folder. Nothing is deleted remotely while it is missing. |
+| A vault is paused for encryption | Finish enabling or disabling vault encryption, or resolve its encryption conflict under **Conflicts**. |
+| Files named `.sync-conflict-` appear | Two devices changed the same file. Keep the version you want and delete the other. |
+| The passphrase is forgotten on every device | The remote data cannot be decrypted. **Disconnect**, then create new storage from a device that still has your files. |
+
+See [Sync](<Sync.md>) for details.
+
 ## An encrypted vault will not unlock
 
 Use an unused recovery code when you forget the password. Each code works once.

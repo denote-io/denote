@@ -307,6 +307,12 @@ more detail and examples.
   paged history and diffs; and merge, rebase, cherry-pick, revert, and
   three-way conflict recovery. It remains disabled by default, never contacts a
   remote automatically, and removes its executable package when disabled.
+- The optional [Whole-app sync](<Sync.md>) plugin replicates enrolled vaults,
+  portable preferences, revision history, and plugin data between devices
+  through a folder, WebDAV, S3-compatible storage, Google Drive, or a dedicated
+  Git repository, end-to-end encrypted with a mandatory sync passphrase. Its
+  host-rendered panel works with any vault open, including a locked encrypted
+  one; plugin code never receives synced data or secrets.
 - The optional Mermaid plugin renders a safe local subset of fenced diagrams in
   Rich view, keeps exact source available, isolates located errors, follows live
   themes and accessibility modes, exports sanitized SVG, and clears all derived
