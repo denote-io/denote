@@ -302,8 +302,9 @@ impl SyncService {
             .collect())
     }
 
-    fn context(&self) -> AppResult<BackendContext> {
+    fn context(&self, plugin_id: &str) -> AppResult<BackendContext> {
         Ok(BackendContext {
+            plugin_id: plugin_id.to_string(),
             sync_dir: self.inner.sync_dir.clone(),
             cancel: self.inner.cancel.clone(),
             plugins: self.environment().backend_plugins(),
@@ -315,7 +316,7 @@ impl SyncService {
         backends::open(
             &config.backend,
             &self.backend_secrets(config)?,
-            &self.context()?,
+            &self.context(&config.plugin_id)?,
         )
     }
 
@@ -698,7 +699,7 @@ impl SyncService {
         let device_name = validate_device_name(&request.device_name)?;
         validate_passphrase(&request.passphrase)?;
         let (backend_config, secrets) = self.backend_from_request(&request.backend)?;
-        let backend = backends::open(&backend_config, &secrets, &self.context()?)?;
+        let backend = backends::open(&backend_config, &secrets, &self.context(plugin_id)?)?;
         backend.refresh()?;
         let existing = backend.get("repository.json")?;
         let (header, master) = match (request.mode, existing) {

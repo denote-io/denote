@@ -151,6 +151,10 @@ const SEED_FILES: &[(&str, &[u8])] = &[
         include_bytes!("../../docs/user-guide/docs/Optional plugins.md"),
     ),
     (
+        "docs/Sync.md",
+        include_bytes!("../../docs/user-guide/docs/Sync.md"),
+    ),
+    (
         "assets/orbit.svg",
         include_bytes!("../../docs/user-guide/assets/orbit.svg"),
     ),

@@ -7,7 +7,6 @@
 
 // Until the backend factory constructs the network transports, only tests
 // reach them.
-#![cfg_attr(not(test), allow(dead_code))]
 
 use std::{
     collections::HashSet,

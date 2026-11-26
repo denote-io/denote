@@ -21,7 +21,6 @@
 
 // Until the backend factory constructs the network transports, only tests
 // reach them.
-#![cfg_attr(not(test), allow(dead_code))]
 
 use std::{
     fs,
@@ -102,7 +101,6 @@ impl GitBackendConfig {
     /// Uses the host Git tooling: the executable and GitHub sign-in follow
     /// `tools_plugin_id`'s host-owned settings, and hooks and global
     /// configuration are the host's empty, managed ones.
-    #[allow(dead_code)] // Wired by the backend factory.
     pub(crate) fn for_plugin(
         manager: &PluginManager,
         tools_plugin_id: &str,

@@ -13,7 +13,6 @@
 
 // Until the backend factory constructs the network transports, only tests
 // reach them.
-#![cfg_attr(not(test), allow(dead_code))]
 
 use std::{
     collections::HashMap,
@@ -192,7 +191,6 @@ impl Drop for GoogleConnection {
 /// `open_url`, waits up to five minutes for the loopback redirect, and
 /// exchanges the code for a refresh token. `client_id` overrides the
 /// build-time OAuth client.
-#[allow(dead_code)] // Wired by the sync command layer.
 pub(crate) fn connect(
     client_id: Option<String>,
     open_url: &dyn Fn(&str) -> AppResult<()>,
@@ -611,7 +609,6 @@ pub(crate) struct GoogleDriveBackend {
 impl GoogleDriveBackend {
     /// Resolve `client_id` and `client_secret` with [`GoogleClient::resolve`]
     /// from the connection's stored client override.
-    #[allow(dead_code)] // Wired by the backend factory.
     pub(crate) fn new(
         refresh_token: &str,
         client_id: &str,
