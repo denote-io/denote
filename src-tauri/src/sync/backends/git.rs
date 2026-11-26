@@ -18,6 +18,10 @@
 //! `.git/info/attributes` marks every path binary without filters, so remote
 //! content can neither redirect file access nor be transformed.
 
+// Until the backend factory constructs the network transports, only tests
+// reach them.
+#![cfg_attr(not(test), allow(dead_code))]
+
 use std::{
     fs,
     io::{Read, Write},
@@ -129,7 +133,6 @@ impl GitBackendConfig {
 
 /// A private clone directory under `sync_dir` that is unique per remote and
 /// branch, so reconfiguring sync never mixes histories.
-#[allow(dead_code)] // Wired by the backend factory.
 pub(crate) fn clone_directory(sync_dir: &Path, remote_url: &str, branch: &str) -> PathBuf {
     let digest = Sha256::digest(format!("{remote_url}\n{branch}").as_bytes());
     sync_dir.join("git").join(hex::encode(&digest[..12]))
@@ -220,9 +223,10 @@ impl GitBackend {
             return Err(cancelled_error());
         }
         let askpass = match (&self.config.credentials, network) {
-            (Some(provider), true) => {
-                provider(self.config.auth_mode, &[self.config.remote_url.clone()])?
-            }
+            (Some(provider), true) => provider(
+                self.config.auth_mode,
+                std::slice::from_ref(&self.config.remote_url),
+            )?,
             _ => None,
         };
         let execution = GitExecution {
@@ -1030,8 +1034,13 @@ mod tests {
             ),
         )
         .unwrap();
-        let error = GitBackend::new(config(&fixture, "vault-remote")).err().unwrap();
-        assert!(error.to_string().contains("vault's own repository"), "{error}");
+        let error = GitBackend::new(config(&fixture, "vault-remote"))
+            .err()
+            .unwrap();
+        assert!(
+            error.to_string().contains("vault's own repository"),
+            "{error}"
+        );
     }
 
     #[test]
@@ -1075,10 +1084,7 @@ mod tests {
         ] {
             assert_eq!(remote_identity(remote), expected, "{remote}");
         }
-        assert_ne!(
-            remote_identity("https://github.com/owner/sync"),
-            expected
-        );
+        assert_ne!(remote_identity("https://github.com/owner/sync"), expected);
     }
 
     #[cfg(unix)]

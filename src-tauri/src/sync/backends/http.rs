@@ -6,6 +6,10 @@
 //! secrets only in headers, URLs with embedded credentials are refused, and
 //! transport errors are stripped of their URL.
 
+// Until the backend factory constructs the network transports, only tests
+// reach them.
+#![cfg_attr(not(test), allow(dead_code))]
+
 use std::{io::Read, net::IpAddr, thread, time::Duration};
 
 use reqwest::{

@@ -5,6 +5,10 @@
 //! (Apache `mod_dav`, Nextcloud, nginx `dav_ext`, rclone) write a `PUT` body
 //! to a temporary file before replacing the target.
 
+// Until the backend factory constructs the network transports, only tests
+// reach them.
+#![cfg_attr(not(test), allow(dead_code))]
+
 use std::{
     collections::HashSet,
     sync::{Mutex, MutexGuard},
@@ -372,12 +376,10 @@ fn parse_multistatus(body: &[u8]) -> AppResult<Vec<(String, bool)>> {
                             response_collection = true;
                         }
                     }
-                    "response" => {
-                        if !href.is_empty() {
-                            entries.push((std::mem::take(&mut href), response_collection));
-                            if entries.len() > MAX_MULTISTATUS_RESPONSES {
-                                return Err(invalid());
-                            }
+                    "response" if !href.is_empty() => {
+                        entries.push((std::mem::take(&mut href), response_collection));
+                        if entries.len() > MAX_MULTISTATUS_RESPONSES {
+                            return Err(invalid());
                         }
                     }
                     _ => {}

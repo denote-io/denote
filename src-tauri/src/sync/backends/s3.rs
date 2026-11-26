@@ -6,6 +6,10 @@
 //! `If-None-Match: *`; a store that does not implement conditional writes is
 //! detected once and then checked with `HeadObject` before writing.
 
+// Until the backend factory constructs the network transports, only tests
+// reach them.
+#![cfg_attr(not(test), allow(dead_code))]
+
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use hmac::{Hmac, KeyInit, Mac};

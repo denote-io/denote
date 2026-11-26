@@ -11,6 +11,10 @@
 //! oldest `createdTime`, then the lowest file ID. A `CreateOnly` upload that
 //! loses that race deletes its own copy and reports `AlreadyExists`.
 
+// Until the backend factory constructs the network transports, only tests
+// reach them.
+#![cfg_attr(not(test), allow(dead_code))]
+
 use std::{
     collections::HashMap,
     fmt,
