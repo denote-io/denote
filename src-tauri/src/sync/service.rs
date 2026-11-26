@@ -949,7 +949,7 @@ impl SyncService {
         let mut report = CycleReport::default();
         let version = self.environment().app_version();
         let staging = self.inner.sync_dir.join("staging");
-        let result = self.open_backend(&current, &operation).and_then(|backend| {
+        let result = self.open_backend(&current, operation).and_then(|backend| {
             let vault_lock = self.environment().vault_lock()?;
             let engine = Engine {
                 store: &self.inner.store,
