@@ -100,14 +100,25 @@ Requirements every backend meets and the conformance suite in
 | Folder | Host-selected absolute folder | Temp file + rename | None |
 | WebDAV | HTTPS base URL | `PROPFIND`, `MKCOL`, `PUT` (`If-None-Match: *`), `GET`, `DELETE` | Username and password |
 | S3-compatible | Endpoint, region, bucket, prefix, path-style flag | AWS Signature V4, `ListObjectsV2`, conditional `PutObject` | Access key ID and secret |
-| Google Drive | App folder created by Denote | OAuth 2.0 PKCE loopback, `drive.file` scope; keys stored in `appProperties`; duplicate names resolved by oldest file ID | Refresh token |
+| Google Drive | App folder created by Denote | OAuth 2.0 PKCE loopback, `drive.file` scope; keys stored in `appProperties`; duplicates resolved by oldest `createdTime`, then file ID | Refresh token |
 | Git | Remote URL of a dedicated repository | Hardened host Git transport in a private clone under application data | Existing Git authentication modes |
 
 The Git backend commits only under `denote-sync/v1/`, rebases onto the remote
 before every push, resolves an add/add conflict on an `objects/` key by keeping
 the remote copy (both decrypt to the same plaintext), retries a rejected push a
 bounded number of times, and never force-pushes. Its repository must not be any
-vault's repository.
+vault's repository: the clone may not overlap a vault, and a remote configured
+in a vault's own repository is refused. Each clone is bound to one remote URL
+and branch.
+
+WebDAV, S3, and Google Drive require `https://`; plain `http://` is accepted
+only for loopback hosts such as a local MinIO or SeaweedFS. Requests never
+follow redirects, retry throttling and transient server errors with bounded
+backoff, and bound responses (300 MiB per object, 16 MiB per listing page).
+Google Drive signs in with the OAuth client built in from
+`DENOTE_GOOGLE_OAUTH_CLIENT_ID` (and `DENOTE_GOOGLE_OAUTH_CLIENT_SECRET`, which
+Google treats as public for desktop clients) unless the user supplies a client
+ID.
 
 ## Cryptography
 

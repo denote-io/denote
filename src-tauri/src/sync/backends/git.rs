@@ -13,8 +13,9 @@
 //! key and its copy is authoritative.
 //!
 //! Every Git invocation runs with the host hardening (no hooks, filters,
-//! credential helpers, pagers, or editors; HTTPS and SSH only). On top of
-//! that, symbolic links are checked out as plain files and
+//! pagers, or editors; HTTPS and SSH only; credential helpers only from the
+//! system configuration in `System` authentication mode, as for the Git
+//! plugin). On top of that, symbolic links are checked out as plain files and
 //! `.git/info/attributes` marks every path binary without filters, so remote
 //! content can neither redirect file access nor be transformed.
 
