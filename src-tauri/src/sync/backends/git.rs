@@ -22,20 +22,30 @@ use std::{
     fs,
     io::{Read, Write},
     path::{Component, Path, PathBuf},
-    sync::{Mutex, MutexGuard},
-    time::Instant,
+    sync::{
+        Arc, Mutex, MutexGuard,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread,
+    time::{Duration, Instant},
 };
 
+use reqwest::Url;
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::{
     error::{AppError, AppResult},
-    plugins::git::{
-        CommandOutcome, GIT_TIMEOUT, GitDirectoryState, GitExecution, GitOperationRegistry,
-        GitTransportPolicy, PluginGitAuthMode, askpass::AskpassMaterial,
-        assert_repository_config_is_safe, detect_operation_state, first_line, git_cli_path_string,
-        push_needs_pull, redact, resolve_git_directory, run_git_command, validate_branch_name,
-        validate_remote_url_for,
+    plugins::{
+        PluginManager,
+        git::{
+            CommandOutcome, GIT_TIMEOUT, GitDirectoryState, GitExecution, GitOperationRegistry,
+            GitTransportPolicy, PluginGitAuthMode, askpass::AskpassMaterial,
+            assert_repository_config_is_safe, detect_operation_state, first_line,
+            git_cli_path_string, push_needs_pull, read_system_git_settings, redact,
+            resolve_git_directory, run_git_command, system_credential_arguments,
+            validate_branch_name, validate_remote_url_for,
+        },
     },
     sync::backend::{Backend, PutMode, PutOutcome, REMOTE_PREFIX, validate_key, validate_prefix},
 };
@@ -49,17 +59,21 @@ const COMMIT_MESSAGE: &str = "Denote sync";
 const MAX_PUSH_ATTEMPTS: usize = 5;
 const MAX_REBASE_STEPS: usize = 64;
 const MAX_LISTED_KEYS: usize = 2_000_000;
+const MAX_VAULT_CONFIG_BYTES: u64 = 1024 * 1024;
+const CANCEL_POLL: Duration = Duration::from_millis(50);
 const TEMP_DIRECTORY: &str = "denote-sync-tmp";
+/// Records which remote and branch a clone belongs to.
+const REMOTE_MARKER: &str = "denote-sync-remote";
 const MANAGED_ATTRIBUTES: &str = "# Managed by Denote sync: content is opaque.\n* -text -diff -merge -filter -ident -working-tree-encoding\n";
 
 /// Produces askpass material for a network operation against `urls`, or
-/// `None` when the mode needs nothing from the host. The integrator backs it
-/// with the plugin manager's authentication adapter.
+/// `None` when the mode needs nothing from the host.
 pub(crate) type GitCredentialProvider =
     Box<dyn Fn(PluginGitAuthMode, &[String]) -> AppResult<Option<AskpassMaterial>> + Send + Sync>;
 
 pub(crate) struct GitBackendConfig {
     /// Host-owned directory for the private clone, under application data.
+    /// See [`clone_directory`].
     pub(crate) clone_dir: PathBuf,
     pub(crate) remote_url: String,
     pub(crate) branch: String,
@@ -70,10 +84,55 @@ pub(crate) struct GitBackendConfig {
     pub(crate) hooks_directory: PathBuf,
     /// Host-owned empty global configuration file.
     pub(crate) global_config: PathBuf,
-    /// Every known vault root; the clone may not overlap any of them.
+    /// Every known vault root; the clone may not overlap any of them, and the
+    /// remote may not be one of their remotes.
     pub(crate) vault_roots: Vec<PathBuf>,
     pub(crate) credentials: Option<GitCredentialProvider>,
+    /// When set, stops the running Git command and fails the operation.
+    pub(crate) cancel: Option<Arc<AtomicBool>>,
     pub(crate) transport: GitTransportPolicy,
+}
+
+impl GitBackendConfig {
+    /// Uses the host Git tooling: the executable and GitHub sign-in follow
+    /// `tools_plugin_id`'s host-owned settings, and hooks and global
+    /// configuration are the host's empty, managed ones.
+    #[allow(dead_code)] // Wired by the backend factory.
+    pub(crate) fn for_plugin(
+        manager: &PluginManager,
+        tools_plugin_id: &str,
+        clone_dir: PathBuf,
+        remote_url: String,
+        branch: String,
+        auth_mode: PluginGitAuthMode,
+        vault_roots: Vec<PathBuf>,
+    ) -> AppResult<Self> {
+        let provider = manager.clone();
+        let plugin_id = tools_plugin_id.to_string();
+        Ok(Self {
+            clone_dir,
+            remote_url,
+            branch,
+            auth_mode,
+            executable: manager.resolve_git_executable_for_plugin(tools_plugin_id)?,
+            hooks_directory: manager.git_hooks_directory()?,
+            global_config: manager.git_global_config()?,
+            vault_roots,
+            credentials: Some(Box::new(move |mode, urls| {
+                provider.authentication_material(&plugin_id, mode, urls, None)
+            })),
+            cancel: None,
+            transport: GitTransportPolicy::RemoteOnly,
+        })
+    }
+}
+
+/// A private clone directory under `sync_dir` that is unique per remote and
+/// branch, so reconfiguring sync never mixes histories.
+#[allow(dead_code)] // Wired by the backend factory.
+pub(crate) fn clone_directory(sync_dir: &Path, remote_url: &str, branch: &str) -> PathBuf {
+    let digest = Sha256::digest(format!("{remote_url}\n{branch}").as_bytes());
+    sync_dir.join("git").join(hex::encode(&digest[..12]))
 }
 
 pub(crate) struct GitBackend {
@@ -95,28 +154,33 @@ impl GitBackend {
             ));
         }
         reject_symlink(&config.clone_dir)?;
-        fs::create_dir_all(&config.clone_dir)?;
-        let root = fs::canonicalize(&config.clone_dir)?;
+        let requested = canonical_or_self(&config.clone_dir);
         for vault in &config.vault_roots {
-            let vault = fs::canonicalize(vault).unwrap_or_else(|_| vault.clone());
-            if root.starts_with(&vault) || vault.starts_with(&root) {
-                return Err(AppError::InvalidPath(
-                    "The Git sync repository cannot be inside a vault or contain one. Use a dedicated repository."
-                        .to_string(),
-                ));
+            let vault = canonical_or_self(vault);
+            if requested.starts_with(&vault) || vault.starts_with(&requested) {
+                return Err(overlaps_vault());
             }
         }
-        if Path::new(&config.remote_url).is_absolute() {
-            let remote = fs::canonicalize(&config.remote_url)
-                .unwrap_or_else(|_| PathBuf::from(&config.remote_url));
-            if config.vault_roots.iter().any(|vault| {
-                let vault = fs::canonicalize(vault).unwrap_or_else(|_| vault.clone());
-                remote.starts_with(&vault)
-            }) {
-                return Err(AppError::InvalidPath(
-                    "The Git sync remote cannot be a vault's repository".to_string(),
-                ));
-            }
+        let remote = remote_identity(&config.remote_url);
+        if config
+            .vault_roots
+            .iter()
+            .any(|vault| vault_remotes(vault).contains(&remote))
+        {
+            return Err(AppError::InvalidData(
+                "The Git sync remote is a vault's own repository. Use a dedicated repository for sync."
+                    .to_string(),
+            ));
+        }
+        fs::create_dir_all(&config.clone_dir)?;
+        let root = fs::canonicalize(&config.clone_dir)?;
+        if config
+            .vault_roots
+            .iter()
+            .map(|vault| canonical_or_self(vault))
+            .any(|vault| root.starts_with(&vault) || vault.starts_with(&root))
+        {
+            return Err(overlaps_vault());
         }
         let remote_ref = format!("refs/remotes/origin/{}", config.branch);
         let backend = Self {
@@ -128,11 +192,6 @@ impl GitBackend {
         };
         backend.ensure_repository()?;
         Ok(backend)
-    }
-
-    /// Stops any running Git child, e.g. when sync is cancelled.
-    pub(crate) fn cancel(&self) {
-        self.operations.cancel_all();
     }
 
     fn guard(&self) -> AppResult<MutexGuard<'_, ()>> {
@@ -149,7 +208,17 @@ impl GitBackend {
         self.root.join(REMOTE_PREFIX.trim_end_matches('/'))
     }
 
+    fn cancelled(&self) -> bool {
+        self.config
+            .cancel
+            .as_ref()
+            .is_some_and(|flag| flag.load(Ordering::SeqCst))
+    }
+
     fn run(&self, args: &[&str], network: bool, mutating: bool) -> AppResult<CommandOutcome> {
+        if self.cancelled() {
+            return Err(cancelled_error());
+        }
         let askpass = match (&self.config.credentials, network) {
             (Some(provider), true) => {
                 provider(self.config.auth_mode, &[self.config.remote_url.clone()])?
@@ -193,20 +262,40 @@ impl GitBackend {
             "-c".to_string(),
             format!("user.email={AUTHOR_EMAIL}"),
         ]);
+        if network && self.config.auth_mode == PluginGitAuthMode::System {
+            let settings = read_system_git_settings(&self.config.executable)?;
+            arguments.extend(system_credential_arguments(&settings)?);
+        }
         arguments.extend(args.iter().map(|value| value.to_string()));
         let operation_id = Uuid::new_v4().to_string();
         let token = self.operations.register(OPERATION_OWNER, &operation_id)?;
-        let outcome = run_git_command(
-            &arguments,
-            &execution,
-            &token,
-            Instant::now() + GIT_TIMEOUT,
-            mutating,
-        );
+        let finished = AtomicBool::new(false);
+        let outcome = thread::scope(|scope| {
+            if let Some(cancel) = &self.config.cancel {
+                scope.spawn(|| {
+                    while !finished.load(Ordering::SeqCst) {
+                        if cancel.load(Ordering::SeqCst) {
+                            let _ = self.operations.cancel(OPERATION_OWNER, &operation_id);
+                            return;
+                        }
+                        thread::sleep(CANCEL_POLL);
+                    }
+                });
+            }
+            let outcome = run_git_command(
+                &arguments,
+                &execution,
+                &token,
+                Instant::now() + GIT_TIMEOUT,
+                mutating,
+            );
+            finished.store(true, Ordering::SeqCst);
+            outcome
+        });
         self.operations.finish(&operation_id);
         let outcome = outcome?;
-        if outcome.cancelled {
-            return Err(AppError::State("Git sync was cancelled".to_string()));
+        if outcome.cancelled || self.cancelled() {
+            return Err(cancelled_error());
         }
         Ok(outcome)
     }
@@ -252,6 +341,7 @@ impl GitBackend {
         }
         let git_dir = self.git_dir();
         assert_repository_config_is_safe(&git_dir)?;
+        self.check_remote_marker(&git_dir)?;
         let info = git_dir.join("info");
         reject_symlink(&info)?;
         fs::create_dir_all(&info)?;
@@ -264,6 +354,41 @@ impl GitBackend {
             self.run_ok(&["rebase", "--abort"], false, "abort an interrupted rebase")?;
         }
         Ok(())
+    }
+
+    /// Refuses a clone that belongs to another remote or branch. A repository
+    /// without commits or marker is an interrupted initialization and is
+    /// adopted.
+    fn check_remote_marker(&self, git_dir: &Path) -> AppResult<()> {
+        let marker = git_dir.join(REMOTE_MARKER);
+        reject_symlink(&marker)?;
+        let expected = format!("{}\n{}\n", self.config.remote_url, self.config.branch);
+        match fs::metadata(&marker) {
+            Ok(metadata) => {
+                if metadata.is_file()
+                    && metadata.len() == expected.len() as u64
+                    && fs::read(&marker)? == expected.as_bytes()
+                {
+                    Ok(())
+                } else {
+                    Err(AppError::InvalidPath(
+                        "The Git sync clone directory belongs to another repository or branch"
+                            .to_string(),
+                    ))
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                if self.has_head()? {
+                    return Err(AppError::InvalidPath(
+                        "The Git sync clone directory holds a repository Denote did not create"
+                            .to_string(),
+                    ));
+                }
+                fs::write(&marker, expected)?;
+                Ok(())
+            }
+            Err(error) => Err(error.into()),
+        }
     }
 
     fn has_head(&self) -> AppResult<bool> {
@@ -535,6 +660,65 @@ impl GitBackend {
     }
 }
 
+fn cancelled_error() -> AppError {
+    AppError::State("Git sync was cancelled".to_string())
+}
+
+fn overlaps_vault() -> AppError {
+    AppError::InvalidPath(
+        "The Git sync repository cannot be inside a vault or contain one. Use a dedicated repository."
+            .to_string(),
+    )
+}
+
+fn canonical_or_self(path: &Path) -> PathBuf {
+    fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// A comparable form of a remote: `host/path` for URLs and scp-style SSH
+/// remotes, without credentials, a trailing `.git`, or letter case.
+fn remote_identity(remote: &str) -> String {
+    let remote = remote.trim();
+    let (host, path) = if let Ok(url) = Url::parse(remote)
+        && let Some(host) = url.host_str()
+    {
+        (host.to_string(), url.path().to_string())
+    } else if let Some((authority, path)) = remote.split_once(':')
+        && !authority.contains('/')
+        && !path.starts_with("//")
+    {
+        let host = authority.rsplit('@').next().unwrap_or(authority);
+        (host.to_string(), path.to_string())
+    } else {
+        (String::new(), remote.to_string())
+    };
+    let path = path.trim_matches('/');
+    let path = path.strip_suffix(".git").unwrap_or(path);
+    format!("{host}/{path}").to_lowercase()
+}
+
+/// Best-effort read of the remote URLs configured in a vault's repository.
+fn vault_remotes(vault: &Path) -> Vec<String> {
+    let config = vault.join(".git").join("config");
+    let readable = fs::symlink_metadata(&config)
+        .is_ok_and(|metadata| metadata.is_file() && metadata.len() <= MAX_VAULT_CONFIG_BYTES);
+    if !readable {
+        return Vec::new();
+    }
+    let Ok(content) = fs::read_to_string(&config) else {
+        return Vec::new();
+    };
+    content
+        .lines()
+        .filter_map(|line| {
+            let (key, value) = line.split_once('=')?;
+            let key = key.trim().to_ascii_lowercase();
+            (key == "url" || key == "pushurl")
+                .then(|| remote_identity(value.trim().trim_matches('"')))
+        })
+        .collect()
+}
+
 fn reject_symlink(path: &Path) -> AppResult<()> {
     match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_symlink() => Err(AppError::InvalidPath(
@@ -741,6 +925,7 @@ mod tests {
             global_config: fixture.root.join("global-config"),
             vault_roots: vec![fixture.root.join("vault")],
             credentials: None,
+            cancel: None,
             transport: GitTransportPolicy::AllowLocal,
         }
     }
@@ -834,6 +1019,66 @@ mod tests {
         fs::create_dir_all(&occupied).unwrap();
         fs::write(occupied.join("file"), b"x").unwrap();
         assert!(GitBackend::new(config(&fixture, "occupied")).is_err());
+
+        let vault_git = fixture.root.join("vault").join(".git");
+        fs::create_dir_all(&vault_git).unwrap();
+        fs::write(
+            vault_git.join("config"),
+            format!(
+                "[remote \"origin\"]\n\turl = {}/\n",
+                fixture.remote.display()
+            ),
+        )
+        .unwrap();
+        let error = GitBackend::new(config(&fixture, "vault-remote")).err().unwrap();
+        assert!(error.to_string().contains("vault's own repository"), "{error}");
+    }
+
+    #[test]
+    fn a_clone_stays_bound_to_its_remote_and_branch() {
+        let fixture = fixture();
+        backend(&fixture, "bound").refresh().unwrap();
+        let mut other_branch = config(&fixture, "bound");
+        other_branch.branch = "other".to_string();
+        let error = GitBackend::new(other_branch).err().unwrap();
+        assert!(error.to_string().contains("another repository"), "{error}");
+        assert_ne!(
+            clone_directory(&fixture.root, "https://example.com/a.git", "main"),
+            clone_directory(&fixture.root, "https://example.com/a.git", "sync")
+        );
+    }
+
+    #[test]
+    fn cancellation_stops_git_operations() {
+        let fixture = fixture();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let mut settings = config(&fixture, "cancelled");
+        settings.cancel = Some(Arc::clone(&cancel));
+        let backend = GitBackend::new(settings).unwrap();
+        backend
+            .put("repository.json", b"x", PutMode::Overwrite)
+            .unwrap();
+        cancel.store(true, Ordering::SeqCst);
+        let error = backend.flush().unwrap_err();
+        assert!(error.to_string().contains("cancelled"), "{error}");
+        cancel.store(false, Ordering::SeqCst);
+        backend.flush().unwrap();
+    }
+
+    #[test]
+    fn remote_identities_ignore_form_and_case() {
+        let expected = remote_identity("https://github.com/owner/repo");
+        for remote in [
+            "git@github.com:Owner/Repo.git",
+            "ssh://git@github.com/owner/repo.git/",
+            "https://user@GitHub.com/owner/repo.git",
+        ] {
+            assert_eq!(remote_identity(remote), expected, "{remote}");
+        }
+        assert_ne!(
+            remote_identity("https://github.com/owner/sync"),
+            expected
+        );
     }
 
     #[cfg(unix)]
