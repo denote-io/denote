@@ -744,6 +744,32 @@ mod tests {
             ),
             "{list}"
         );
+        let payload = hex::encode(Sha256::digest(b"Welcome to Amazon S3."));
+        assert_eq!(
+            payload,
+            "44ce7dd67c959e0d3524ffac1771dfbba87d2b6b4b4e99e42034a8b803f8b072"
+        );
+        let put = signature(
+            "PUT",
+            "https://examplebucket.s3.amazonaws.com/test$file.text",
+            &[
+                ("date", "Fri, 24 May 2013 00:00:00 GMT"),
+                ("host", "examplebucket.s3.amazonaws.com"),
+                ("x-amz-content-sha256", &payload),
+                ("x-amz-date", "20130524T000000Z"),
+                ("x-amz-storage-class", "REDUCED_REDUNDANCY"),
+            ],
+            &payload,
+            "20130524T000000Z",
+            "s3",
+            key,
+        );
+        assert!(
+            put.ends_with(
+                "Signature=98ad721746da40c64f1a55b78f14c238d841ea1380cd77a1b5971af0ece108bd"
+            ),
+            "{put}"
+        );
     }
 
     #[derive(Default)]

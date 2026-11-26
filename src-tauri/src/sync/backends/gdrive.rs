@@ -811,7 +811,10 @@ impl GoogleDriveBackend {
                 folders.push(created.clone());
             }
             order_candidates(&mut folders);
-            if folders[0].id != created.id {
+            if folders
+                .first()
+                .is_some_and(|winner| winner.id != created.id)
+            {
                 // Best effort: an empty duplicate folder is harmless.
                 let _ = self.delete_file(&created.id);
             }
@@ -1126,6 +1129,8 @@ mod tests {
         resumable_uploads: usize,
         list_pages: usize,
         base: String,
+        /// Another device creates the app folder just before this one.
+        race_folder: bool,
     }
 
     #[derive(Clone)]
@@ -1313,6 +1318,9 @@ mod tests {
             }
             ("POST", "/drive/v3/files") => {
                 let metadata: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+                if std::mem::take(&mut state.race_folder) {
+                    state.create(&metadata, Vec::new());
+                }
                 let file = state.create(&metadata, Vec::new());
                 MockResponse::body(200, file_json(&file).to_string())
             }
@@ -1471,6 +1479,22 @@ mod tests {
         );
         fresh.delete("heads/aa/1").unwrap();
         assert!(state.lock().unwrap().files.iter().all(|file| file.folder));
+    }
+
+    #[test]
+    fn concurrent_folder_creation_converges_on_the_oldest_folder() {
+        let (_server, state, endpoints) = server();
+        state.lock().unwrap().race_folder = true;
+        let backend = backend(&endpoints);
+        backend
+            .put("repository.json", b"x", PutMode::CreateOnly)
+            .unwrap();
+        let state = state.lock().unwrap();
+        let folders: Vec<&StoredFile> = state.files.iter().filter(|file| file.folder).collect();
+        assert_eq!(folders.len(), 1);
+        let stored = state.files.iter().find(|file| !file.folder).unwrap();
+        assert_eq!(stored.parents, vec![folders[0].id.clone()]);
+        assert_eq!(folders[0].created, "2026-01-01T00:00:01.000Z");
     }
 
     #[test]
