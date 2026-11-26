@@ -355,6 +355,20 @@ describe("PluginSettingsPanel", () => {
     ).toBeInTheDocument();
   });
 
+  it("explains the isolated sync permission before it is approved", () => {
+    const sync = plugin({
+      catalog: {
+        ...catalog,
+        manifest: { ...catalog.manifest, id: "denote.sync", name: "Whole-app sync", permissions: [{ capability: "sync" }] },
+      },
+    });
+    render(<PluginSettingsPanel {...props({ plugins: [sync] })} />);
+
+    expect(within(pluginDisclosure("Whole-app sync")).getByText(
+      "Sync: replicate all vaults, preferences, history and plugin data through storage you choose, end-to-end encrypted. Plugin code never sees the data.",
+    )).toBeInTheDocument();
+  });
+
   it("requires permission approval before enabling", async () => {
     const user = userEvent.setup();
     const onEnable = vi.fn().mockResolvedValue(undefined);

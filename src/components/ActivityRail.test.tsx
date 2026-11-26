@@ -56,12 +56,13 @@ describe("ActivityRail", () => {
     expect(row.querySelector(".lucide-square-terminal")).not.toBeNull();
   });
 
-  it("opens both sensitive host sidebars by keyboard without granting worker sidebar access", async () => {
+  it("opens every sensitive host sidebar by keyboard without granting worker sidebar access", async () => {
     const user = userEvent.setup();
     const onPluginViewChange = vi.fn();
     const tools = [
       { pluginId: "denote.speech", id: "denote.speech.local", title: "Speech", feature: "speech" as const },
       { pluginId: "denote.credential-store", id: "denote.credential-store.entries", title: "Credential store", feature: "credential-store" as const },
+      { pluginId: "denote.sync", id: "denote.sync.tool", title: "Sync", feature: "sync" as const },
     ];
     const view = render(<ActivityRail calendars={[]} activeCalendar={null} onCalendarChange={vi.fn()}
       activeView="files" activePluginView={tools[1].id} activeSourceControlProvider={null}
@@ -75,6 +76,11 @@ describe("ActivityRail", () => {
     speech.focus();
     await user.keyboard("{Enter}");
     expect(onPluginViewChange).toHaveBeenCalledWith(tools[0].id);
+    const sync = screen.getByRole("button", { name: "Sync" });
+    expect(sync.querySelector(".lucide-refresh-cw")).not.toBeNull();
+    sync.focus();
+    await user.keyboard("{Enter}");
+    expect(onPluginViewChange).toHaveBeenLastCalledWith(tools[2].id);
     view.unmount();
   });
 

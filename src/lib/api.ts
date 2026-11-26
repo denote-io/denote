@@ -1,4 +1,5 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   AppLinkResolution,
   AppLockConfigurationRequest,
@@ -62,6 +63,11 @@ import type { PluginToolDocument } from "@denote/plugin-sdk";
 import type { CredentialRequest, CredentialResult } from "./credentials";
 import type { SpeechEngineStatus, SpeechProgress, SpeechTranscript } from "./speech";
 import type { UpdateChannel } from "./updateChannel";
+import {
+  SYNC_APPLIED_EVENT, SYNC_STATUS_EVENT, isSyncAppliedEvent, isSyncStatusView,
+  type SyncAppliedEvent, type SyncGoogleConnection, type SyncOptions, type SyncSetupRequest, type SyncStatusView,
+  type SyncVaultRequest,
+} from "./sync";
 
 export const api = {
   getAppLockStatus: () => invoke<AppLockStatus>("get_app_lock_status"),
@@ -118,6 +124,40 @@ export const api = {
   credentialTransfer: (pluginId: string, workspaceScope: string, kind: "backup" | "import" | "export", sessionId: string | null) =>
     invoke<CredentialResult>("credential_transfer", { pluginId, workspaceScope, kind, sessionId }),
   stopSensitiveTools: (pluginId: string) => invoke<void>("stop_sensitive_tools", { pluginId }),
+  syncStatus: (pluginId: string) => invoke<SyncStatusView>("sync_status", { pluginId }),
+  syncConfigure: (pluginId: string, request: SyncSetupRequest) =>
+    invoke<SyncStatusView>("sync_configure", { pluginId, request }),
+  syncConnectGoogle: (pluginId: string, clientId: string | null) =>
+    invoke<SyncGoogleConnection>("sync_connect_google", { pluginId, clientId }),
+  syncUnlock: (pluginId: string, passphrase: string, remember: boolean) =>
+    invoke<SyncStatusView>("sync_unlock", { pluginId, passphrase, remember }),
+  syncRun: (pluginId: string) => invoke<SyncStatusView>("sync_run", { pluginId }),
+  syncCancel: (pluginId: string) => invoke<void>("sync_cancel", { pluginId }),
+  syncSetOptions: (pluginId: string, options: SyncOptions) =>
+    invoke<SyncStatusView>("sync_set_options", { pluginId, options }),
+  syncMapVault: (pluginId: string, request: SyncVaultRequest) =>
+    invoke<SyncStatusView>("sync_map_vault", { pluginId, request }),
+  syncResolve: (pluginId: string, conflictId: string, choice: "local" | "remote") =>
+    invoke<SyncStatusView>("sync_resolve", { pluginId, conflictId, choice }),
+  syncPutPreferences: (pluginId: string, preferences: Record<string, string | null>) =>
+    invoke<void>("sync_put_preferences", { pluginId, preferences }),
+  syncRetireDevice: (pluginId: string, writerId: string) =>
+    invoke<SyncStatusView>("sync_retire_device", { pluginId, writerId }),
+  syncChangePassphrase: (pluginId: string, current: string, next: string) =>
+    invoke<SyncStatusView>("sync_change_passphrase", { pluginId, current, next }),
+  syncDisconnect: (pluginId: string) => invoke<SyncStatusView>("sync_disconnect", { pluginId }),
+  /** Opens the host folder chooser for a folder backend or a new vault mapping; null when cancelled. */
+  syncChooseFolder: (pluginId: string, purpose: "backend" | "vault") =>
+    invoke<string | null>("sync_choose_folder", { pluginId, purpose }),
+  /** Malformed payloads are dropped rather than rendered. */
+  onSyncStatus: (handler: (status: SyncStatusView) => void): Promise<UnlistenFn> =>
+    listen<unknown>(SYNC_STATUS_EVENT, (event) => {
+      if (isSyncStatusView(event.payload)) handler(event.payload);
+    }),
+  onSyncApplied: (handler: (applied: SyncAppliedEvent) => void): Promise<UnlistenFn> =>
+    listen<unknown>(SYNC_APPLIED_EVENT, (event) => {
+      if (isSyncAppliedEvent(event.payload)) handler(event.payload);
+    }),
   readNoteComments: (pluginId: string, workspaceScope: string) =>
     invoke<NoteCommentsSnapshot>("read_note_comments", { pluginId, workspaceScope }),
   saveNoteComments: (

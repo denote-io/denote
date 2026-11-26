@@ -1,3 +1,5 @@
+import { notifySyncPreferenceChanged } from "./syncPreferences";
+
 export interface EditorDisplaySettings {
   showLineNumbers: boolean;
   showWhitespace: boolean;
@@ -53,6 +55,7 @@ export function saveEditorDisplaySettings(
       tabSize: settings.tabSize === 2 ? 2 : 4,
     }),
   );
+  notifySyncPreferenceChanged(STORAGE_KEY);
 }
 
 export function hasEditorDisplayGuides(

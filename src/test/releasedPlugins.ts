@@ -57,6 +57,7 @@ const REGISTERING_PERMISSIONS: Partial<Record<PluginCapability, RegisteringCapab
   presentation: "authoring",
   speech: "sensitiveTools",
   "credential-store": "sensitiveTools",
+  sync: "sensitiveTools",
 };
 
 export interface ActivatedReleasedPlugin {

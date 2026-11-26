@@ -76,6 +76,7 @@ const PERMISSION_LABELS: Record<string, string> = {
   notifications: "Show system notifications",
   process: "Run external processes after an explicit action",
   "secure-storage": "Use an isolated operating-system keychain namespace",
+  sync: "Sync: replicate all vaults, preferences, history and plugin data through storage you choose, end-to-end encrypted. Plugin code never sees the data.",
 };
 
 interface PluginSettingsPanelProps {

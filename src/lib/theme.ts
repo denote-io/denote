@@ -1,3 +1,5 @@
+import { notifySyncPreferenceChanged } from "./syncPreferences";
+
 export type Theme = "dark" | "light";
 export type ThemePreference = Theme | "system";
 
@@ -26,6 +28,7 @@ export function saveThemePreference(
   storage: Pick<Storage, "setItem"> = localStorage,
 ): void {
   storage.setItem(THEME_STORAGE_KEY, preference);
+  notifySyncPreferenceChanged(THEME_STORAGE_KEY);
 }
 
 export function systemTheme(

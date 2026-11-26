@@ -2,6 +2,7 @@ import {
   FolderClock,
   FolderOpen,
   History,
+  RefreshCw,
   Search,
   ShieldCheck,
 } from "lucide-react";
@@ -10,12 +11,15 @@ interface WelcomeProps {
   loading: boolean;
   onChooseVault: () => void;
   onShowRecentVaults: () => void;
+  /** Present when a sync plugin is enabled, so a new device can join before opening a vault. */
+  onOpenSync?: () => void;
 }
 
 export function Welcome({
   loading,
   onChooseVault,
   onShowRecentVaults,
+  onOpenSync,
 }: WelcomeProps) {
   return (
     <main className="welcome">
@@ -45,6 +49,17 @@ export function Welcome({
             <FolderClock aria-hidden="true" size={17} />
             Recent vaults
           </button>
+          {onOpenSync ? (
+            <button
+              type="button"
+              className="secondary-button welcome__button"
+              disabled={loading}
+              onClick={onOpenSync}
+            >
+              <RefreshCw aria-hidden="true" size={17} />
+              Sync
+            </button>
+          ) : null}
         </div>
         <div className="welcome__facts">
           <span>

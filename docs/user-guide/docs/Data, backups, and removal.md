@@ -3,7 +3,9 @@
 ## Your files stay yours
 
 A vault is an ordinary folder. Denote edits its files in place and never moves
-them into an account, server, or proprietary database. Notes, boards, task
+them into an account, server, or proprietary database. The optional
+[Sync](<Sync.md>) plugin copies end-to-end encrypted data only to storage you
+choose; your vault folders stay ordinary folders on every device. Notes, boards, task
 markers, decks, and voice recordings stay readable without Denote or its
 plugins. Removing a plugin or uninstalling Denote never deletes vault content.
 
@@ -22,7 +24,9 @@ plugins. Removing a plugin or uninstalling Denote never deletes vault content.
 | Plugin code, approvals, settings, and generated data such as reminders and time-tracking sessions | `plugins` in application data | Not encrypted | **Disable and remove code** removes code; **Delete saved data** removes settings and generated data |
 | Speech model and engine | `speech` in application data | Public model files | **Remove local model and engine** |
 | Temporary plugin downloads and update recovery copies | Application cache | Not applicable | Automatically after use |
-| Plugin credentials and saved Git passphrases | macOS Keychain, Windows Credential Manager, or Linux Secret Service | Operating-system protection | **Delete credentials** or **Delete saved passphrase** |
+| Sync settings, device identity, and sync index | `sync` in application data | Configuration and index are local metadata; nothing is uploaded unencrypted | **Disconnect** in the Sync panel |
+| Encrypted sync copies of enrolled vaults, preferences, history, and plugin data | The folder, server, bucket, Google Drive folder, or Git repository you chose | End-to-end encrypted with the sync passphrase | Only you |
+| Plugin credentials, saved Git passphrases, sync storage credentials, and a remembered sync passphrase | macOS Keychain, Windows Credential Manager, or Linux Secret Service | Operating-system protection | **Delete credentials**, **Delete saved passphrase**, or sync **Disconnect** |
 
 Application data and cache folders use the identifier `dev.mbianchi.denote`:
 
@@ -51,9 +55,19 @@ application data, not in the vault. A vault copy does not include them. Use
 **Export CSV** or **Export JSON** for time tracking, or export plugin settings as
 JSON, before moving to another computer. Exports are plaintext files.
 
-Denote does not synchronize vaults. You can keep a vault in a folder your own
-sync or backup tool manages. When another application changes an open file,
-Denote reports a conflict instead of overwriting either version.
+## Sync between devices
+
+The optional [Sync](<Sync.md>) plugin replicates enrolled vaults, portable
+preferences, revision history, and plugin data between your devices through a
+folder, WebDAV, S3-compatible storage, Google Drive, or a dedicated Git
+repository. Everything leaves the device end-to-end encrypted with a sync
+passphrase that Denote cannot recover. Sync is not a backup: a deletion or a
+mistaken edit reaches every device, so keep separate backups too.
+
+You can also keep a vault in a folder your own sync or backup tool manages.
+When sync or another application changes an open file, Denote reloads a clean
+tab and reports a conflict for unsaved edits instead of overwriting either
+version.
 
 ## Restore a vault
 
@@ -94,9 +108,10 @@ Uninstalling removes the application. Your vault folders stay where they are.
 Deleting application data also deletes the built-in Denote Welcome vault,
 revision history, plugin settings, reminders, time-tracking sessions, and the
 speech model. Copy anything you want to keep first. Before uninstalling, use
-**Delete credentials** for plugins with saved credentials; otherwise remove
-their `dev.denote.plugin` entries with your system's keychain tool.
+**Delete credentials** for plugins with saved credentials and **Disconnect** in
+the Sync panel; otherwise remove their `dev.denote.plugin` entries with your
+system's keychain tool. Uninstalling never deletes data in your sync storage.
 
-[Next: Troubleshooting](<Troubleshooting.md>)
+[Next: Sync](<Sync.md>)
 
 #guide #recovery #privacy

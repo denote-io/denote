@@ -14,6 +14,7 @@ import type {
   PluginReminderContribution,
   PluginTaskListContribution,
   PluginClockContribution,
+  PluginSensitiveToolContribution,
 } from "./workerRuntime";
 import type { InstalledPlugin, PluginView } from "../types";
 import { api } from "../lib/api";
@@ -31,6 +32,7 @@ interface MockRuntimeInstance {
   onCalendarsChanged?: (calendars: PluginCalendarContribution[]) => void;
   onTaskListsChanged?: (taskLists: PluginTaskListContribution[]) => void;
   onClocksChanged?: (clocks: PluginClockContribution[]) => void;
+  onSensitiveToolsChanged?: (tools: PluginSensitiveToolContribution[]) => void;
   requestClocks: ReturnType<typeof vi.fn>;
   queryCalendar: ReturnType<typeof vi.fn>;
   getEmojiPicker: ReturnType<typeof vi.fn>;
@@ -208,6 +210,8 @@ vi.mock("./workerRuntime", () => {
       public onCodeProvidersChanged?: unknown,
       public onTimeTrackersChanged?: unknown,
       public onClocksChanged?: (clocks: PluginClockContribution[]) => void,
+      public onAuthoringChanged?: unknown,
+      public onSensitiveToolsChanged?: (tools: PluginSensitiveToolContribution[]) => void,
     ) {
       runtimeInstances.push(this);
     }
@@ -229,6 +233,10 @@ const emojiPicker: PluginEmojiPickerContribution = {
   }],
   shortcodes: true,
   settingsKeys: { recents: "recents", favorites: "favorites", tone: "tone" },
+};
+const syncCatalog = {
+  ...catalog,
+  manifest: { ...catalog.manifest, id: "denote.sync", name: "Sync", permissions: [{ capability: "sync" as const }] },
 };
 const emojiPreferences: PluginEmojiPreferences = {
   recents: ["\u{1f44b}"], favorites: [], tone: 0,
@@ -748,6 +756,65 @@ describe("usePlugins", () => {
       expect(api.disablePlugin).not.toHaveBeenCalled();
     },
   );
+
+  it("keeps the app-wide sync tool across vault locks and switches while vault-bound tools follow the vault", async () => {
+    const rendered = await mountReady([], null, "/synthetic/vault-alpha", true);
+    const runtime = runtimeInstances[0];
+    const sync: PluginSensitiveToolContribution = { pluginId: "denote.sync", id: "denote.sync.tool", title: "Sync", feature: "sync" };
+    const credentials: PluginSensitiveToolContribution = {
+      pluginId: "denote.credential-store", id: "denote.credential-store.tool", title: "Credential store", feature: "credential-store",
+    };
+    act(() => runtime.onSensitiveToolsChanged?.([sync, credentials]));
+    expect(rendered.result.current.sensitiveTools).toEqual([sync, credentials]);
+
+    rendered.rerender({ currentProjectContext: null, currentWorkspaceIdentity: "/synthetic/vault-alpha", currentContentAvailable: false });
+    expect(rendered.result.current.sensitiveTools).toEqual([sync]);
+
+    rendered.rerender({ currentProjectContext: null, currentWorkspaceIdentity: "/synthetic/vault-beta", currentContentAvailable: true });
+    expect(rendered.result.current.sensitiveTools).toEqual([sync]);
+  });
+
+  it("starts a sync plugin with a locked vault and keeps it running across vault changes", async () => {
+    const syncPlugin = makePlugin({
+      catalog: syncCatalog, status: "enabled", enabled: true, previouslyApproved: true,
+      approvedPermissions: syncCatalog.manifest.permissions,
+    });
+    const rendered = await mountReady([syncPlugin], null, "/synthetic/encrypted-vault", false);
+    const runtime = runtimeInstances[0];
+    await waitFor(() => expect(runtime.start).toHaveBeenCalledWith(syncPlugin));
+    runtime.stop.mockClear();
+    runtime.forceStop.mockClear();
+
+    rendered.rerender({ currentProjectContext: null, currentWorkspaceIdentity: "/synthetic/vault-beta", currentContentAvailable: true });
+    rendered.rerender({ currentProjectContext: null, currentWorkspaceIdentity: "/synthetic/vault-beta", currentContentAvailable: false });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(runtime.stop).not.toHaveBeenCalled();
+    expect(runtime.forceStop).not.toHaveBeenCalled();
+  });
+
+  it("reloads plugins whose settings a sync cycle imported, but never the sync plugin itself", async () => {
+    const other = makePlugin({ status: "enabled", enabled: true, approvedPermissions: catalog.manifest.permissions });
+    const syncPlugin = makePlugin({
+      catalog: syncCatalog, status: "enabled", enabled: true, approvedPermissions: syncCatalog.manifest.permissions,
+    });
+    const rendered = await mountReady([other, syncPlugin]);
+    const runtime = runtimeInstances[0];
+    await waitFor(() => expect(runtime.start).toHaveBeenCalledTimes(2));
+    vi.mocked(api.listPlugins).mockResolvedValue([other, syncPlugin]);
+    runtime.start.mockClear();
+    runtime.stop.mockClear();
+
+    await act(async () => {
+      await rendered.result.current.reloadSyncedPlugins([pluginId, "denote.sync", pluginId, "denote.unknown"]);
+    });
+
+    expect(runtime.stop.mock.calls).toEqual([[pluginId]]);
+    expect(runtime.start.mock.calls).toEqual([[other]]);
+    expect(api.listPlugins).toHaveBeenCalled();
+    expect(api.disablePlugin).not.toHaveBeenCalled();
+    expect(reportError).not.toHaveBeenCalled();
+  });
 
   it("disables and removes a running plugin whose worker crashes", async () => {
     const enabled = makePlugin({
