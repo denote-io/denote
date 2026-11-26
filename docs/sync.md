@@ -259,14 +259,21 @@ One cycle:
    The merged vector is the pointwise maximum of both inputs, without a local
    increment, so devices resolving the same conflict converge on the same
    entry.
-5. **Prepare.** Download and verify every object needed locally into a staging
-   directory in application data.
+5. **Prepare.** Stage every object needed locally in a staging directory in
+   application data: copied from a file on this device that still holds that
+   exact content (verified by its object ID), otherwise downloaded and
+   verified. A download that fails is reported and retried next cycle; the
+   entry stays in the index, so nothing is forgotten.
 6. **Apply** under the vault's native mutation lock. Immediately before each
    write the current file is revalidated against the scanned size,
    modification time, and hash. A file changed since the scan is left alone
-   and retried next cycle. Files are written with a temporary file and rename,
-   with case-insensitive and Unicode collision checks and confined resolution
-   under the vault root. Denote's existing external-change detection then
+   and retried next cycle. Writes that keep content another write replaces or
+   removes (a conflict copy of the local version, a rename) are applied first,
+   from the local file, and a file whose local version lost a conflict is
+   replaced only once its conflict copy exists on disk; otherwise it is kept
+   and retried, so a cancelled or failed cycle never loses either side. Files
+   are written with a temporary file and rename, with case-insensitive and
+   Unicode collision checks and confined resolution under the vault root. Denote's existing external-change detection then
    reloads clean tabs and reports a conflict for dirty ones instead of
    overwriting. Preferences and plugin data are applied through their normal
    validated import paths, after which affected plugin workers restart.

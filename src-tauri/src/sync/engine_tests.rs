@@ -785,3 +785,146 @@ fn storage_failures_abort_the_cycle_and_are_never_read_as_deletions() {
     assert_eq!(fs::read_to_string(desk_root.join("a.md")).unwrap(), "alpha");
     assert_eq!(desk.sync(&backend, &keys).published, None);
 }
+
+/// Wraps a memory backend, failing reads of chosen keys and writes under
+/// chosen prefixes.
+struct Selective<'a> {
+    inner: &'a MemoryBackend,
+    failing_gets: Vec<String>,
+    failing_puts: Vec<String>,
+}
+
+impl Backend for Selective<'_> {
+    fn get(&self, key: &str) -> AppResult<Option<Vec<u8>>> {
+        if self.failing_gets.iter().any(|failing| failing == key) {
+            return Err(AppError::State(format!("Synthetic read failure for {key}")));
+        }
+        self.inner.get(key)
+    }
+
+    fn put(&self, key: &str, bytes: &[u8], mode: PutMode) -> AppResult<PutOutcome> {
+        if self
+            .failing_puts
+            .iter()
+            .any(|prefix| key.starts_with(prefix.as_str()))
+        {
+            return Err(AppError::State(format!(
+                "Synthetic write failure for {key}"
+            )));
+        }
+        self.inner.put(key, bytes, mode)
+    }
+
+    fn list(&self, prefix: &str) -> AppResult<Vec<String>> {
+        self.inner.list(prefix)
+    }
+
+    fn delete(&self, key: &str) -> AppResult<()> {
+        self.inner.delete(key)
+    }
+}
+
+fn write_at(root: &Path, relative: &str, content: &str, modified_ms: u64) {
+    write(root, relative, content);
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .open(root.join(relative))
+        .unwrap();
+    file.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_millis(modified_ms))
+        .unwrap();
+}
+
+/// Laptop and desk edit `n.md` concurrently; the desk's later edit wins the
+/// path on both, so the laptop's edit must become a conflict copy.
+fn losing_local_edit() -> (MemoryBackend, Keys, Device, PathBuf, Device, PathBuf) {
+    let backend = MemoryBackend::default();
+    let keys = repository(&backend);
+    let laptop = Device::new("Laptop", &keys);
+    let desk = Device::new("Desk", &keys);
+    let (laptop_root, laptop_scope) = laptop.add_vault("Notes");
+    let (desk_root, desk_scope) = desk.add_vault("Notes");
+    laptop.map(VAULT, &laptop_scope);
+    desk.map(VAULT, &desk_scope);
+    write_at(&laptop_root, "n.md", "base", 1_700_000_000_000);
+    laptop.sync(&backend, &keys);
+    desk.sync(&backend, &keys);
+    write_at(&laptop_root, "n.md", "edited on laptop", 1_700_000_100_000);
+    write_at(
+        &desk_root,
+        "n.md",
+        "edited on desk, later",
+        1_700_000_200_000,
+    );
+    desk.sync(&backend, &keys);
+    (backend, keys, laptop, laptop_root, desk, desk_root)
+}
+
+#[test]
+fn a_failed_cycle_never_loses_the_local_side_of_a_conflict() {
+    let (backend, keys, laptop, laptop_root, desk, desk_root) = losing_local_edit();
+    let local = keys.object_id(b"edited on laptop").unwrap();
+    // The conflict copy's content cannot be downloaded, and publishing fails
+    // after the files were applied.
+    let flaky = Selective {
+        inner: &backend,
+        failing_gets: vec![object_key(&local)],
+        failing_puts: vec!["heads/".into()],
+    };
+    let (result, _) = laptop.try_sync(&flaky, &keys, false);
+    assert!(result.is_err());
+    let copy = format!("n.sync-conflict-{}.md", &local[..8]);
+    assert_eq!(
+        fs::read_to_string(laptop_root.join(&copy)).unwrap(),
+        "edited on laptop",
+        "the copy is written from the local file before the original is replaced"
+    );
+
+    for _ in 0..2 {
+        laptop.sync(&backend, &keys);
+        desk.sync(&backend, &keys);
+    }
+    let files = tree(&laptop_root);
+    assert_eq!(files, tree(&desk_root));
+    let contents: Vec<&[u8]> = files.values().map(Vec::as_slice).collect();
+    assert!(contents.contains(&&b"edited on laptop"[..]), "{files:?}");
+    assert!(
+        contents.contains(&&b"edited on desk, later"[..]),
+        "{files:?}"
+    );
+}
+
+#[test]
+fn an_original_is_not_replaced_while_its_conflict_copy_cannot_be_written() {
+    let (backend, keys, laptop, laptop_root, desk, desk_root) = losing_local_edit();
+    let local = keys.object_id(b"edited on laptop").unwrap();
+    let copy = format!("n.sync-conflict-{}.md", &local[..8]);
+    fs::create_dir(laptop_root.join(&copy)).unwrap();
+    let report = laptop.sync(&backend, &keys);
+    assert_eq!(
+        fs::read_to_string(laptop_root.join("n.md")).unwrap(),
+        "edited on laptop"
+    );
+    assert!(
+        report
+            .skipped
+            .iter()
+            .any(|skipped| skipped.contains("conflict copy")),
+        "{:?}",
+        report.skipped
+    );
+
+    fs::remove_dir(laptop_root.join(&copy)).unwrap();
+    for _ in 0..2 {
+        laptop.sync(&backend, &keys);
+        desk.sync(&backend, &keys);
+    }
+    assert_eq!(tree(&laptop_root), tree(&desk_root));
+    assert_eq!(
+        fs::read_to_string(laptop_root.join("n.md")).unwrap(),
+        "edited on desk, later"
+    );
+    assert_eq!(
+        fs::read_to_string(laptop_root.join(&copy)).unwrap(),
+        "edited on laptop"
+    );
+}

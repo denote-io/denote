@@ -20,7 +20,7 @@ use super::{
         FORMAT_VERSION, Keys, MAX_FILE_BYTES, MAX_SNAPSHOT_BYTES, parse_header, random_hex_id,
         validate_object_id, validate_writer_id,
     },
-    merge::merge_state,
+    merge::{conflict_copy_path, merge_state},
     metadata::{self, DbVault},
     model::{
         Entry, EntryKind, EntryValue, Snapshot, VersionVector, file_key, present, same_presence,
@@ -356,10 +356,25 @@ impl Engine<'_> {
             .get(&object_key(id))?
             .ok_or_else(|| AppError::NotFound("A synced file is missing from storage".into()))?;
         let plaintext = self.keys.open_object(id, &envelope)?;
+        self.stage(id, &plaintext)
+    }
+
+    /// Writes verified plaintext for `id` into the staging directory.
+    fn stage(&self, id: &str, plaintext: &[u8]) -> AppResult<PathBuf> {
+        let path = self.staging.join(id);
         let temporary = self.staging.join(format!("{id}.part"));
-        fs::write(&temporary, &plaintext)?;
+        fs::write(&temporary, plaintext)?;
         fs::rename(&temporary, &path)?;
         Ok(path)
+    }
+
+    /// Stages `id` from a local file, if it still holds exactly that content.
+    fn stage_local(&self, id: &str, root: &Path, disk_path: &Path) -> AppResult<Option<PathBuf>> {
+        let bytes = read_file(root, disk_path, MAX_FILE_BYTES)?;
+        if self.keys.object_id(&bytes)? != id {
+            return Ok(None);
+        }
+        self.stage(id, &bytes).map(Some)
     }
 
     /// Runs one cycle: refresh, scan, merge, download, apply, publish, commit.
@@ -1043,16 +1058,46 @@ impl Engine<'_> {
             tasks.push((key.clone(), task));
         }
 
-        // 4. Prepare: download and verify every object needed locally.
+        // 4. Prepare: stage every object needed locally, from a file on this
+        // device that still holds it when there is one, otherwise from storage.
         let needed: BTreeSet<String> = tasks
             .iter()
             .filter(|(_, task)| matches!(task, Task::File | Task::History))
             .filter_map(|(key, _)| index.get(key)?.entry.value.object_id().map(str::to_string))
             .collect();
+        let mut local_sources: HashMap<&str, Vec<(&Path, PathBuf)>> = HashMap::new();
+        for (key, row) in &index {
+            let EntryKind::VaultFile { vault, path } = EntryKind::parse(key) else {
+                continue;
+            };
+            let (Some(id), Some(_), Some(ready_vault)) =
+                (observed_object(row), row.fingerprint, ready.get(vault))
+            else {
+                continue;
+            };
+            if needed.contains(id) {
+                local_sources.entry(id).or_default().push((
+                    ready_vault.root.as_path(),
+                    disk_paths
+                        .get(key)
+                        .cloned()
+                        .unwrap_or_else(|| PathBuf::from(path)),
+                ));
+            }
+        }
         let mut staged: HashMap<String, PathBuf> = HashMap::new();
         for (position, id) in needed.iter().enumerate() {
             (self.progress)(Phase::Download, position, needed.len());
             self.check_cancel()?;
+            let local = local_sources
+                .get(id.as_str())
+                .into_iter()
+                .flatten()
+                .find_map(|(root, disk_path)| self.stage_local(id, root, disk_path).ok().flatten());
+            if let Some(path) = local {
+                staged.insert(id.clone(), path);
+                continue;
+            }
             match self.download(id) {
                 Ok(path) => {
                     staged.insert(id.clone(), path);
@@ -1080,21 +1125,45 @@ impl Engine<'_> {
             let Some(vault) = ready.get(sync_id) else {
                 continue;
             };
+            let prefix = format!("v/{sync_id}/f/");
+            // Content that this pass replaces or removes on disk. Writes that
+            // preserve it elsewhere (conflict copies, renames) go first, so a
+            // cancelled or failed cycle never leaves it only in a replaced file.
+            let ordered: Vec<String> = {
+                let leaving: HashSet<&str> = keys
+                    .iter()
+                    .filter_map(|key| observed_object(index.get(key)?))
+                    .collect();
+                let (preserving, rest): (Vec<&String>, Vec<&String>) =
+                    keys.iter().partition(|key| {
+                        index
+                            .get(*key)
+                            .and_then(|row| row.entry.value.object_id())
+                            .is_some_and(|id| leaving.contains(id))
+                    });
+                preserving.into_iter().chain(rest).cloned().collect()
+            };
             let mut applied_here = 0usize;
             let mut run = || -> AppResult<()> {
                 let _vault_lock = crate::vault::acquire_vault_control_lock(&vault.root)?;
                 let mut cache = DirectoryCache::default();
-                for key in keys {
+                for key in &ordered {
                     self.check_cancel()?;
                     done += 1;
                     (self.progress)(Phase::Apply, done, total);
+                    let path = key.strip_prefix(&prefix).unwrap_or_default().to_string();
+                    if let Some(local_id) = index.get(key).and_then(observed_object)
+                        && unsaved_conflict_copy(&index, &merged.copies, sync_id, &path, local_id)
+                    {
+                        report.skipped.push(format!(
+                            "{}: {path}: kept until its conflict copy is saved; it will be retried",
+                            vault.db.name
+                        ));
+                        continue;
+                    }
                     let Some(row) = index.get_mut(key) else {
                         continue;
                     };
-                    let path = key
-                        .strip_prefix(&format!("v/{sync_id}/f/"))
-                        .unwrap_or_default()
-                        .to_string();
                     let expected = match row
                         .observed
                         .as_ref()
@@ -1458,6 +1527,44 @@ impl Engine<'_> {
         uploader.ensure(id, &bytes)?;
         Ok(true)
     }
+}
+
+/// The content a vault file had when it was last observed on disk.
+fn observed_object(row: &IndexRow) -> Option<&str> {
+    row.fingerprint?;
+    row.observed.as_ref()?.value.object_id()
+}
+
+/// Whether a conflict copy that must keep `local_id`, the content now at
+/// `path`, is not on disk yet. Such a copy is either one this merge produced
+/// for that content or the deterministic copy name for it, and the file at
+/// `path` must not be replaced until the copy exists.
+fn unsaved_conflict_copy(
+    index: &BTreeMap<String, IndexRow>,
+    copies: &BTreeSet<String>,
+    sync_id: &str,
+    path: &str,
+    local_id: &str,
+) -> bool {
+    let own = file_key(sync_id, path);
+    let prefix = format!("v/{sync_id}/f/");
+    copies
+        .iter()
+        .filter(|copy| copy.starts_with(&prefix))
+        .cloned()
+        .chain(std::iter::once(file_key(
+            sync_id,
+            &conflict_copy_path(path, local_id),
+        )))
+        .filter(|copy| *copy != own)
+        .filter_map(|copy| index.get(&copy))
+        .filter(|row| row.entry.value.object_id() == Some(local_id))
+        .any(|row| {
+            row.observed
+                .as_ref()
+                .and_then(|observed| observed.value.object_id())
+                != Some(local_id)
+        })
 }
 
 fn segment_ok(value: &str) -> bool {
