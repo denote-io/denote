@@ -408,5 +408,6 @@ The renderer side lives in `src/lib/sync.ts` (payload types and validators),
   reloaded, clean tabs reload from disk, and dirty tabs report a conflict. For
   each running plugin in `pluginIds`, except sync plugins, it reuses the
   settings-save path: refresh the plugin list, stop the worker, and start it
-  again with its imported settings. Plugins are never disabled or enabled to
-  apply synced data.
+  again with its imported settings. Synced data is never applied by disabling
+  and re-enabling a plugin; only a worker that then fails to start is disabled,
+  exactly as after a failed explicit settings import.

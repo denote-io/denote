@@ -1405,6 +1405,61 @@ actual platform sign-off before release. Browser mocks do not establish those
 guarantees. Record missing or unsupported capabilities instead of marking an
 untested platform successful.
 
+### Sync plugin development
+
+Whole-app sync pairs the isolated `denote.sync` plugin from
+[denote-io/denote-sync](https://github.com/denote-io/denote-sync) with
+host-owned code in this repository. Read [the sync reference](sync.md) before
+changing the protocol, scope, commands, or payloads; the renderer and the Rust
+host must change together. The plugin worker only registers
+`denote.sync.tool`, so plugin releases rarely need host changes.
+
+The `sync` permission first ships in SDK 0.2.0. Until that tag is published,
+`package.json` pins `@denote/plugin-sdk` to the reviewed commit
+`564645ef77c2844962af5025732c630dfff6a40d`; replace the pin with the tag when it
+exists. Renderer pieces:
+
+- `src/lib/sync.ts` and `src/lib/api.ts`: payload types, validators, and command
+  and event wrappers that must match [Command payloads](sync.md#command-payloads);
+- `src/components/SyncPanel.tsx`: the host-rendered panel and dialog;
+- `src/lib/syncPreferences.ts` and `src/lib/useSyncBridge.ts`: the preference
+  allowlist, debounced pushes, and `denote://sync-applied` handling. A new
+  portable preference needs its key in `SYNC_PREFERENCE_KEYS`, the same key in
+  the host allowlist and [the scope matrix](sync.md#scope-matrix), a
+  `notifySyncPreferenceChanged` call after its writer stores it, and live-state
+  handling in `App.tsx`. Never add device layout, trust, network consent, update,
+  or automation preferences.
+
+```bash
+npx vitest run \
+  src/components/SyncPanel.test.tsx src/lib/syncPreferences.test.ts src/lib/api.test.ts \
+  src/plugins/usePlugins.test.tsx src/plugins/workerRuntime.test.ts \
+  src/components/PluginSettingsPanel.test.tsx src/components/ActivityRail.test.tsx
+cargo test --manifest-path src-tauri/Cargo.toml --locked --lib sync
+npx tsc --noEmit
+```
+
+Tests use invented device names, paths, and passphrases and mock only native
+IPC. They cover setup validation for every backend, that secrets are cleared
+after submit and failure, unlock, conflicts, vault mapping, device removal,
+disconnect confirmation, the app-wide tool across vault locks and switches,
+synced plugin reloads that skip the sync plugin, the permission label, and the
+preference push and apply boundary.
+
+For a manual end-to-end check, run `npm run dev -- --once` in the plugin
+repository and follow **Preview a local plugin build on macOS** below with two
+development profiles. A shared local folder is the quickest backend. For S3,
+point a disposable MinIO or SeaweedFS container at a scratch bucket with
+path-style addressing; for WebDAV, any disposable server works. Never test
+against real vaults or real cloud credentials, and delete scratch remotes
+afterwards. Check that a second device can join, map, merge, and skip vaults,
+that conflicting edits produce `.sync-conflict-` copies, that preferences and
+plugin settings arrive without echoing back, and that app lock, safe mode,
+disable, and **Disconnect** stop sync without deleting local or remote data.
+
+`docs/user-guide/docs/Sync.md` is part of the Welcome vault inventory, so it
+also needs a seed entry in `src-tauri/src/default_vault.rs`.
+
 ## Frontend bundle limits
 
 `npm run build` uses entry-aware Rolldown groups and rejects main-thread

@@ -137,6 +137,10 @@ approval; it is not included in the desktop installer or enabled by default.
 - **[Encrypted credential store](docs/user-guide/docs/Optional%20plugins.md#encrypted-credential-store):**
   independently encrypted entries, masked secrets, expiring clipboard copies,
   and separately authenticated plaintext exports.
+- **[Whole-app sync](docs/user-guide/docs/Sync.md):** two-way sync of enrolled
+  vaults, preferences, revision history, and plugin data between your devices
+  through a folder, WebDAV, S3-compatible storage, Google Drive, or a dedicated
+  Git repository, end-to-end encrypted with your own passphrase.
 
 Disabling a plugin stops its worker and removes its downloaded code, not your
 notes. Read the [plugin guide](docs/user-guide/docs/Optional%20plugins.md) for
@@ -145,8 +149,9 @@ setup, permission, update, and cleanup details.
 ## Privacy and safety
 
 Search, metadata, preferences, history, and optional encryption stay local.
-There is no telemetry, built-in cloud synchronization, or hosted content
-storage. App updates, plugin downloads, remote Git operations, external links,
+There is no telemetry, Denote-hosted cloud service, or hosted content storage.
+The optional sync plugin uses only storage you choose and encrypts everything
+before it leaves the device. App updates, plugin downloads, remote Git operations, external links,
 and remote Markdown images can use the network. HTTP(S) links to unapproved
 domains require confirmation. Bug reports open as editable GitHub drafts with
 bounded, redacted diagnostics; Denote never submits them automatically.
@@ -213,6 +218,8 @@ records their provenance, remaining version-based warning, and required checks.
 - [Built-in user guide](docs/user-guide/Welcome.md)
 - [Complete feature reference](docs/user-guide/docs/Feature%20reference.md)
 - [Data, backups, and removal](docs/user-guide/docs/Data,%20backups,%20and%20removal.md)
+- [Sync between devices](docs/user-guide/docs/Sync.md) and the
+  [sync protocol reference](docs/sync.md)
 - [Troubleshooting](docs/user-guide/docs/Troubleshooting.md)
 - [Product and design documentation](docs/index.md)
 - [Development setup and validation](docs/development.md)

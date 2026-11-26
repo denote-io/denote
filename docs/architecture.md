@@ -1510,10 +1510,11 @@ never receive its callbacks or the native window object.
 
 ### Sensitive tools
 
-The additive `speech` and `credential-store` permissions expose only closed
-declarative `sensitiveTools.register` contributions. SDK and native validation
-require an isolated single-permission worker; no workspace, network, process,
-clipboard, keychain, or note-event capability can be combined with either.
+The additive `speech`, `credential-store`, and `sync` permissions expose only
+closed declarative `sensitiveTools.register` contributions. SDK and native
+validation require an isolated single-permission worker; no workspace, network,
+process, clipboard, keychain, or note-event capability can be combined with any
+of them.
 Workers receive no user content. The trusted host owns all UI and native I/O.
 The host derives activity-rail entries from the existing sensitive-tool
 registrations and renders non-modal sidebars; it does not add worker sidebar
@@ -1542,6 +1543,18 @@ ambiguous, or changed snapshots append at the current note's end instead of
 guessing a replacement; the review states that destination. Paragraph separation
 preserves existing bytes and line endings, and final editor/native writes retain
 their ordinary source/hash fences.
+
+Whole-app sync is the app-wide sensitive tool. `sync` is not a content
+permission, so its worker keeps running while the open vault is locked, and
+`usePlugins` and `PluginWorkerRuntime` publish its registration regardless of
+the current vault. The renderer shows `SyncPanel` in the sidebar, or in a dialog
+from the Welcome and locked-vault screens when no sidebar exists, and
+`useSyncBridge` pushes the portable preference allowlist and applies
+`denote://sync-applied` (preferences, open-vault refresh through the external
+change path, and settings-reload restarts of affected plugins). Every worker
+stop, including an orderly disable or update, calls `stop_sensitive_tools` so a
+running cycle is cancelled. The host side lives in `src-tauri/src/sync/`; the
+protocol, scope, and command contract are in [sync.md](sync.md).
 
 `src-tauri/src/sensitive/` fences operations by enabled permission, canonical
 active vault, unlock state, and opaque session/operation identity. Native
