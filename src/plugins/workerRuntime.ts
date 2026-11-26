@@ -460,6 +460,12 @@ export class PluginWorkerRuntime {
       runtime.phase = "stopping";
       await Promise.allSettled([...runtime.hostRequests]);
       this.terminate(pluginId);
+      // Host sync runs without the worker, so an orderly stop (disable,
+      // update, settings reload) cancels a running cycle as well.
+      if (runtime.permissions.has("sync")) {
+        try { await api.stopSensitiveTools(pluginId); }
+        catch (error) { this.onError(pluginId, error); }
+      }
     }
   }
 
