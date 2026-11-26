@@ -48,7 +48,7 @@ pub(crate) fn pointwise_max(left: &VersionVector, right: &VersionVector) -> Vers
 
 /// `<stem>.sync-conflict-<first 8 hex of the object id>.<ext>` beside the original.
 pub(crate) fn conflict_copy_path(path: &str, object_id: &str) -> String {
-    let tag = &object_id[..object_id.len().min(8)];
+    let tag = object_id.get(..8).unwrap_or(object_id);
     let (directory, name) = match path.rsplit_once('/') {
         Some((directory, name)) => (Some(directory), name),
         None => (None, path),

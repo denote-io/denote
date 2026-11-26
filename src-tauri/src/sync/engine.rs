@@ -101,7 +101,7 @@ pub(crate) fn head_key(writer: &str, generation: u64) -> String {
 }
 
 pub(crate) fn object_key(id: &str) -> String {
-    format!("objects/{}/{id}", &id[..2])
+    format!("objects/{}/{id}", id.get(..2).unwrap_or_default())
 }
 
 pub(crate) fn retired_key(writer: &str) -> String {
@@ -303,7 +303,7 @@ fn summarize(value: Option<&EntryValue>) -> String {
     match value {
         None | Some(EntryValue::Tombstone) => "Not set".into(),
         Some(EntryValue::Object { id, size, .. }) => {
-            format!("Version {} ({size} bytes)", &id[..8])
+            format!("Version {} ({size} bytes)", id.get(..8).unwrap_or(id))
         }
         Some(EntryValue::Inline { json }) => {
             let shown = json.get("value").unwrap_or(json).to_string();
