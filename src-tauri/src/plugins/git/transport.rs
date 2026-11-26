@@ -1403,14 +1403,7 @@ pub(crate) fn apply_system_git_settings(
         if policy.use_system_settings
             && matches!(request.auth_mode(), Some(PluginGitAuthMode::System))
         {
-            for value in settings.values("credential.helper") {
-                push_system_config(&mut prefix, "credential.helper", value)?;
-            }
-            for key in ["credential.usehttppath", "credential.username"] {
-                if let Some(value) = settings.last(key) {
-                    push_system_config(&mut prefix, key, value)?;
-                }
-            }
+            prefix.extend(system_credential_arguments(settings)?);
         }
         if matches!(request, PluginGitRequest::Commit { .. }) {
             let system_signing = policy.use_system_settings
@@ -1482,6 +1475,21 @@ pub(crate) fn apply_system_git_settings(
         *args = prefix;
     }
     Ok(())
+}
+
+/// The `-c` arguments that let one remote operation in `System` mode use the
+/// credential helper from the system and global Git configuration.
+pub(crate) fn system_credential_arguments(settings: &SystemGitSettings) -> AppResult<Vec<String>> {
+    let mut arguments = Vec::new();
+    for value in settings.values("credential.helper") {
+        push_system_config(&mut arguments, "credential.helper", value)?;
+    }
+    for key in ["credential.usehttppath", "credential.username"] {
+        if let Some(value) = settings.last(key) {
+            push_system_config(&mut arguments, key, value)?;
+        }
+    }
+    Ok(arguments)
 }
 
 fn push_system_config(arguments: &mut Vec<String>, key: &str, value: &str) -> AppResult<()> {
