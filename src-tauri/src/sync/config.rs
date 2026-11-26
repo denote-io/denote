@@ -250,10 +250,14 @@ pub(crate) enum BackendSecrets {
 /// Host services a transport may need. Never contains secrets.
 #[derive(Clone)]
 pub(crate) struct BackendContext {
-    /// `sync/` in application data; transports may keep private state below it.
+    /// `sync/` in application data. Transports keep private state only under
+    /// `sync_dir/backends/<kind>/`, which Disconnect removes.
     pub sync_dir: PathBuf,
+    /// Set when the running cycle is cancelled.
     pub cancel: Arc<AtomicBool>,
     pub plugins: Option<crate::plugins::PluginManager>,
+    /// Every known vault root; a transport's private data may not overlap them.
+    pub vault_roots: Vec<PathBuf>,
 }
 
 /// Result of the Google Drive OAuth flow, held by the host until `sync_configure`.

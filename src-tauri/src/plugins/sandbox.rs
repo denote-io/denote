@@ -27,12 +27,19 @@ use super::{
 };
 
 pub(crate) const HOST_GIT_SIGNING_SECRET_PREFIX: &str = "host-git-signing.";
+/// Sync storage credentials and the remembered sync key. Host-owned.
+pub(crate) const HOST_SYNC_SECRET_PREFIX: &str = "host-sync.";
 
 fn validate_plugin_secret_key(key: &str) -> AppResult<()> {
     validate_storage_key(key)?;
     if key.starts_with(HOST_GIT_SIGNING_SECRET_PREFIX) {
         return Err(AppError::Plugin(
             "Signing credentials are host-owned and unavailable to plugins.".to_string(),
+        ));
+    }
+    if key.starts_with(HOST_SYNC_SECRET_PREFIX) {
+        return Err(AppError::Plugin(
+            "Sync credentials are host-owned and unavailable to plugins.".to_string(),
         ));
     }
     Ok(())
@@ -110,6 +117,28 @@ impl PluginManager {
             })?;
         }
         Ok(())
+    }
+
+    /// Host-only access to the reserved `host-sync.` namespace.
+    pub(crate) fn sync_secret_get(&self, plugin_id: &str, name: &str) -> AppResult<Option<String>> {
+        self.host_secret_get(plugin_id, &format!("{HOST_SYNC_SECRET_PREFIX}{name}"))
+    }
+
+    pub(crate) fn sync_secret_set(
+        &self,
+        plugin_id: &str,
+        name: &str,
+        value: &str,
+    ) -> AppResult<()> {
+        self.host_secret_set(
+            plugin_id,
+            &format!("{HOST_SYNC_SECRET_PREFIX}{name}"),
+            value,
+        )
+    }
+
+    pub(crate) fn sync_secret_delete(&self, plugin_id: &str, name: &str) -> AppResult<()> {
+        self.host_secret_delete(plugin_id, &format!("{HOST_SYNC_SECRET_PREFIX}{name}"))
     }
 
     pub(crate) fn secret_delete(&self, plugin_id: &str, key: &str) -> AppResult<()> {
