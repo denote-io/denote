@@ -520,3 +520,71 @@ fn a_cancellation_never_outlives_the_operations_it_hit() {
         .unwrap();
     laptop.run();
 }
+
+/// Waits until `service` has an operation registered, as a queued cycle does.
+fn wait_until_queued(service: &SyncService) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline {
+        let queued = ACTIVE
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|registration| registration.service == service.inner.id);
+        if queued {
+            // Let the cycle reach the guard it waits for.
+            thread::sleep(Duration::from_millis(50));
+            return;
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
+}
+
+#[test]
+fn a_queued_cycle_honors_cancellation_and_authorization_changes() {
+    let storage = tempfile::tempdir().unwrap();
+    let device = Device::new();
+    device
+        .setup(SetupMode::Create, storage.path(), PASSPHRASE, false)
+        .unwrap();
+    device
+        .service
+        .map_vault(
+            PLUGIN,
+            SyncVaultRequest::Enroll {
+                scope_id: device.scope_id.clone(),
+            },
+        )
+        .unwrap();
+    fs::write(device.vault_root.join("a.md"), "alpha").unwrap();
+    let heads = storage.path().join("denote-sync/v1/heads");
+
+    // Cancelled while it waits behind another cycle.
+    let guard = device.service.cycle_guard().unwrap();
+    let queued = {
+        let service = device.service.clone();
+        thread::spawn(move || service.run_now(PLUGIN).map(|_| ()))
+    };
+    wait_until_queued(&device.service);
+    device.service.cancel(PLUGIN).unwrap();
+    drop(guard);
+    let error = queued.join().unwrap().unwrap_err();
+    assert!(error.to_string().contains("cancelled"), "{error}");
+    assert!(!heads.exists(), "the cancelled cycle never ran");
+
+    // The plugin is disabled, or the app locked, while it waits.
+    let guard = device.service.cycle_guard().unwrap();
+    let queued = {
+        let service = device.service.clone();
+        thread::spawn(move || service.run_now(PLUGIN).map(|_| ()))
+    };
+    wait_until_queued(&device.service);
+    device.environment.denied.store(true, Ordering::SeqCst);
+    drop(guard);
+    assert!(queued.join().unwrap().is_err());
+    device.environment.denied.store(false, Ordering::SeqCst);
+    assert!(!heads.exists(), "the unauthorized cycle never ran");
+    assert!(device.service.status(PLUGIN).unwrap().last_run.is_none());
+
+    device.run();
+    assert!(heads.exists());
+}

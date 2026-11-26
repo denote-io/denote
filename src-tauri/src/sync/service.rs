@@ -127,6 +127,14 @@ impl Operation {
     fn token(&self) -> &Arc<AtomicBool> {
         &self.0
     }
+
+    fn check(&self) -> AppResult<()> {
+        if self.0.load(Ordering::SeqCst) {
+            Err(scan::cancelled())
+        } else {
+            Ok(())
+        }
+    }
 }
 
 impl Drop for Operation {
@@ -908,14 +916,30 @@ impl SyncService {
 
     // ----- Cycles -----
 
-    fn run_cycle(&self, config: &PersistedConfig, keys: &Keys) -> AppResult<()> {
+    /// Runs one cycle under `operation`, which the caller registered before
+    /// authorizing, so a cancellation while this cycle waits for another one
+    /// still applies to it.
+    fn run_cycle(
+        &self,
+        config: &PersistedConfig,
+        keys: &Keys,
+        operation: &Operation,
+        scheduled: bool,
+    ) -> AppResult<()> {
         let _cycle = self.cycle_guard()?;
-        // Configuration may have changed while waiting for the previous cycle.
-        let current = self.config()?.ok_or_else(not_configured)?;
+        // Configuration may have changed while waiting for the previous cycle,
+        // and the app may have been locked, put in safe mode, or the plugin
+        // disabled or stopped.
+        let current = self
+            .authorize(&config.plugin_id)?
+            .ok_or_else(not_configured)?;
         if current.repository_id != config.repository_id {
             return Err(not_configured());
         }
-        let operation = self.begin(&current.plugin_id);
+        operation.check()?;
+        if scheduled && (current.options.paused || current.options.interval_minutes == 0) {
+            return Ok(());
+        }
         {
             let mut runtime = self.runtime()?;
             runtime.running = true;
@@ -965,9 +989,10 @@ impl SyncService {
 
     /// Runs a cycle now and returns when it ends.
     pub(crate) fn run_now(&self, plugin_id: &str) -> AppResult<SyncStatusView> {
+        let operation = self.begin(plugin_id);
         let config = self.configured(plugin_id)?;
         let keys = self.keys(&config)?.ok_or_else(needs_passphrase)?;
-        self.run_cycle(&config, &keys)?;
+        self.run_cycle(&config, &keys, &operation, false)?;
         self.build_status()
     }
 
@@ -1030,13 +1055,14 @@ impl SyncService {
         if config.options.paused || config.options.interval_minutes == 0 {
             return Ok(());
         }
+        let operation = self.begin(&config.plugin_id);
         if self.environment().authorize(&config.plugin_id).is_err() {
             return Ok(());
         }
         let Some(keys) = self.keys(&config)? else {
             return Ok(());
         };
-        self.run_cycle(&config, &keys)
+        self.run_cycle(&config, &keys, &operation, true)
     }
 
     // ----- Options, vaults, conflicts, preferences -----

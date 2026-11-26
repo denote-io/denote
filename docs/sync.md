@@ -218,7 +218,9 @@ One cycle:
 
 1. **Lock and unlock.** Requires the plugin to be enabled with an approved
    `sync` permission, the application unlocked, not in safe mode, and the
-   master key available. One cycle runs at a time.
+   master key available. One cycle runs at a time. A cycle that waits for
+   another one checks all of this again once it may start, and a cancellation
+   issued while it waits cancels it too.
 2. **Refresh.** `backend.refresh()`, then list `heads/` and `retired/`. For
    each non-retired writer pick the highest generation not lower than the last
    one applied (a lower one is a rollback and is refused). If its snapshot or
