@@ -8,6 +8,8 @@ pub(crate) mod backends;
 pub(crate) mod config;
 pub(crate) mod crypto;
 pub(crate) mod merge;
+pub(crate) mod metadata;
 pub(crate) mod model;
+pub(crate) mod plugin_data;
 pub(crate) mod scan;
 pub(crate) mod store;
