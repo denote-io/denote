@@ -885,7 +885,10 @@ impl Backend for GitBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{plugins::git::resolve_git_executable, sync::backends::test_support::conformance};
+    use crate::{
+        plugins::git::{git_cli_path, resolve_git_executable},
+        sync::backends::test_support::conformance,
+    };
 
     struct Fixture {
         _directory: tempfile::TempDir,
@@ -903,7 +906,7 @@ mod tests {
         fs::write(root.join("global-config"), b"").unwrap();
         let status = std::process::Command::new(&executable)
             .args(["init", "--quiet", "--bare"])
-            .arg(&remote)
+            .arg(git_cli_path(&remote))
             .env("GIT_CONFIG_GLOBAL", root.join("global-config"))
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .status()
@@ -920,7 +923,7 @@ mod tests {
     fn config(fixture: &Fixture, name: &str) -> GitBackendConfig {
         GitBackendConfig {
             clone_dir: fixture.root.join(name),
-            remote_url: fixture.remote.to_string_lossy().into_owned(),
+            remote_url: git_cli_path_string(&fixture.remote),
             branch: "sync".to_string(),
             auth_mode: PluginGitAuthMode::Public,
             executable: fixture.executable.clone(),
