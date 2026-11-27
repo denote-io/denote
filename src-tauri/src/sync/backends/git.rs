@@ -681,7 +681,13 @@ fn canonical_or_self(path: &Path) -> PathBuf {
 /// A comparable form of a remote: `host/path` for URLs and scp-style SSH
 /// remotes, without credentials, a trailing `.git`, or letter case.
 fn remote_identity(remote: &str) -> String {
+    // Windows spells one local remote as `C:\x`, `C:/x`, or `\\?\C:\x`.
     let remote = remote.trim();
+    let remote = remote
+        .strip_prefix(r"\\?\")
+        .unwrap_or(remote)
+        .replace('\\', "/");
+    let remote = remote.as_str();
     let (host, path) = if let Ok(url) = Url::parse(remote)
         && let Some(host) = url.host_str()
     {
@@ -1046,6 +1052,19 @@ mod tests {
             error.to_string().contains("vault's own repository"),
             "{error}"
         );
+    }
+
+    #[test]
+    fn local_remote_spellings_share_one_identity() {
+        let expected = remote_identity("C:/data/remote.git");
+        for spelling in [
+            r"C:\data\remote.git",
+            r"\\?\C:\data\remote.git\",
+            "c:/data/remote/",
+        ] {
+            assert_eq!(remote_identity(spelling), expected, "{spelling}");
+        }
+        assert_ne!(remote_identity("C:/data/other.git"), expected);
     }
 
     #[test]
