@@ -11,6 +11,7 @@ mod models;
 mod paths;
 mod plugins;
 mod sensitive;
+mod sync;
 mod updater;
 mod vault;
 
@@ -321,8 +322,24 @@ pub fn run() {
                 .unwrap_or_else(|| default_vault_path.clone());
             db::set_last_vault(&connection, &active_vault.to_string_lossy())?;
             let app_lock = app_lock::AppLockManager::load(db_path.clone())?;
-            let state = AppState::with_app_lock(db_path, Some(active_vault), app_lock);
+            let state = AppState::with_app_lock(db_path.clone(), Some(active_vault), app_lock);
             app.manage(state);
+            // A damaged sync store disables sync for this session, never startup.
+            match sync::service::SyncService::new(
+                &app_data_dir,
+                db_path,
+                std::sync::Arc::new(sync::commands::TauriSyncEnvironment::new(
+                    app.handle().clone(),
+                )),
+            ) {
+                Ok(sync) => {
+                    if let Err(error) = sync.start_scheduler() {
+                        eprintln!("Scheduled sync is unavailable: {error}");
+                    }
+                    app.manage(sync);
+                }
+                Err(error) => eprintln!("Sync is unavailable in this session: {error}"),
+            }
             Ok(())
         })
         .invoke_handler(app_lock::ipc::guard(tauri::generate_handler![
@@ -343,6 +360,21 @@ pub fn run() {
             sensitive::audio::read_speech_audio,
             sensitive::audio::keep_unfinished_speech_audio,
             sensitive::audio::export_speech_audio,
+            sync::commands::sync_status,
+            sync::commands::sync_configure,
+            sync::commands::sync_connect_google,
+            sync::commands::sync_unlock,
+            sync::commands::sync_run,
+            sync::commands::sync_cancel,
+            sync::commands::sync_set_options,
+            sync::commands::sync_map_vault,
+            sync::commands::sync_resolve,
+            sync::commands::sync_put_preferences,
+            sync::commands::sync_retire_device,
+            sync::commands::sync_rejoin,
+            sync::commands::sync_change_passphrase,
+            sync::commands::sync_disconnect,
+            sync::commands::sync_choose_folder,
             commands::get_last_vault,
             commands::list_known_vaults,
             commands::list_known_vault_files,
@@ -477,6 +509,9 @@ pub fn run() {
             RunEvent::Exit => {
                 if sensitive::revoke_all().is_err() {
                     eprintln!("Unable to finish sensitive-tool cleanup.");
+                }
+                if let Some(sync) = app.try_state::<sync::service::SyncService>() {
+                    sync.shutdown();
                 }
                 app.state::<plugins::PluginManager>()
                     .cancel_all_git_operations();

@@ -9,6 +9,7 @@ mod lifecycle;
 mod package;
 mod sandbox;
 mod settings;
+mod sync_data;
 mod time_tracking;
 mod tooling;
 mod tooling_commands;

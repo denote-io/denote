@@ -1,9 +1,10 @@
 import { X } from "lucide-react";
 import { useEffect, useRef, type ReactNode } from "react";
+import type { PluginSensitiveToolFeature } from "@denote/plugin-sdk";
 
 export function SensitiveToolPanel({ title, feature, onClose, onEscape, children }: {
   title: string; onClose: () => void; onEscape?: () => void; children: ReactNode;
-  feature: "speech" | "credential-store";
+  feature: PluginSensitiveToolFeature;
 }) {
   const root = useRef<HTMLElement>(null);
   const previous = useRef(document.activeElement);

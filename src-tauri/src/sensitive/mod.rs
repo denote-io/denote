@@ -39,12 +39,14 @@ where
 }
 
 pub(crate) fn revoke_plugin(plugin_id: &str) -> AppResult<()> {
+    crate::sync::service::cancel_running(Some(plugin_id));
     let credentials = credentials::revoke(Some(plugin_id));
     let speech = speech_engine::cancel(Some(plugin_id), None);
     credentials.and(speech)
 }
 
 pub(crate) fn revoke_all() -> AppResult<()> {
+    crate::sync::service::cancel_running(None);
     let credentials = credentials::revoke(None);
     let speech = speech_engine::cancel(None, None);
     credentials.and(speech)

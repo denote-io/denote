@@ -499,7 +499,7 @@ fn sensitive_plugin_removal_preserves_notes_decks_comments_audio_and_opaque_cred
 
 #[test]
 fn sensitive_permissions_are_isolated_at_the_native_catalog_boundary() {
-    for capability in ["speech", "credential-store"] {
+    for capability in ["speech", "credential-store", "sync"] {
         let mut entry = catalog();
         entry.manifest.permissions = vec![PluginPermission {
             capability: capability.into(),

@@ -1,3 +1,5 @@
+import { notifySyncPreferenceChanged } from "./syncPreferences";
+
 export type MarkdownViewMode = "rich-text" | "source";
 
 const STORAGE_KEY = "denote-markdown-view-mode";
@@ -14,4 +16,5 @@ export function getMarkdownViewMode(): MarkdownViewMode {
 
 export function saveMarkdownViewMode(mode: MarkdownViewMode): void {
   localStorage.setItem(STORAGE_KEY, mode);
+  notifySyncPreferenceChanged(STORAGE_KEY);
 }

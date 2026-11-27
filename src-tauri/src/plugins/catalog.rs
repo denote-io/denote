@@ -196,12 +196,13 @@ fn validate_catalog_entry(entry: &PluginCatalogEntry) -> AppResult<()> {
     if entry.manifest.permissions.iter().any(|permission| {
         matches!(
             permission.capability.as_str(),
-            "speech" | "credential-store"
+            "speech" | "credential-store" | "sync"
         )
     }) && entry.manifest.permissions.len() != 1
     {
         return Err(AppError::Plugin(
-            "Sensitive tools require one isolated speech or credential-store permission".into(),
+            "Sensitive tools require one isolated speech, credential-store, or sync permission"
+                .into(),
         ));
     }
     validate_relative_path(&entry.manifest.documentation)?;
@@ -224,6 +225,7 @@ fn validate_catalog_entry(entry: &PluginCatalogEntry) -> AppResult<()> {
             | "presentation"
             | "speech"
             | "credential-store"
+            | "sync"
             | "note-graph"
             | "calendar"
             | "reminders"

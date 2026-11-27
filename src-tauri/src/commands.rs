@@ -193,7 +193,7 @@ fn with_expected_vault_read<T>(
 pub async fn get_last_vault<R: Runtime>(app: AppHandle<R>) -> AppResult<Option<WorkspaceSnapshot>> {
     run_blocking(move || {
         let state = app.state::<AppState>();
-        let _vault_access = state.write_vault_access()?;
+        let _vault_access = state.transition_vault_access()?;
         let Some(path) = vault::get_last_vault(&state.db_path)? else {
             return Ok(None);
         };
@@ -270,7 +270,7 @@ pub async fn import_app_link_vault(
     };
     let (root, path) = app_links::vault_file_target(&selected, &target)?;
     let _tools = plugins.quiesce_native_tools()?;
-    let _vault_access = state.write_vault_access()?;
+    let _vault_access = state.transition_vault_access()?;
     seal_active_vault_before_switch(&state)?;
     let mut snapshot = vault::open_vault(&state.db_path, &root.to_string_lossy())?;
     state.set_active_vault(snapshot.vault_path.clone().into())?;
@@ -285,7 +285,7 @@ pub fn open_known_vault(
     vault_id: i64,
 ) -> AppResult<WorkspaceSnapshot> {
     let _tools = plugins.quiesce_native_tools()?;
-    let _vault_access = state.write_vault_access()?;
+    let _vault_access = state.transition_vault_access()?;
     let connection = db::open(&state.db_path)?;
     let path = db::known_vault_path(&connection, vault_id)?
         .ok_or_else(|| AppError::NotFound(format!("Vault {vault_id}")))?;
@@ -401,7 +401,7 @@ pub async fn choose_vault(
         return Ok(None);
     };
     let _tools = plugins.quiesce_native_tools()?;
-    let _vault_access = state.write_vault_access()?;
+    let _vault_access = state.transition_vault_access()?;
     seal_active_vault_before_switch(&state)?;
     let mut snapshot = vault::open_vault(&state.db_path, &path.to_string_lossy())?;
     state.set_active_vault(snapshot.vault_path.clone().into())?;
@@ -561,7 +561,7 @@ pub fn lock_vault(
     plugins: State<'_, crate::plugins::PluginManager>,
 ) -> AppResult<WorkspaceSnapshot> {
     let _tools = plugins.quiesce_native_tools()?;
-    let _vault_access = state.write_vault_access()?;
+    let _vault_access = state.transition_vault_access()?;
     let root = state.active_vault()?;
     if let Some(manifest) = crypto::load_manifest(&root)?
         && manifest.phase == EncryptionPhase::Encrypted

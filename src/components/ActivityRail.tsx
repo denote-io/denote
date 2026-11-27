@@ -24,6 +24,7 @@ import {
   Mic,
   Moon,
   Network,
+  RefreshCw,
   Search,
   KeyRound,
   Sun,
@@ -34,6 +35,7 @@ import {
 import { memo, useEffect, useMemo, useState } from "react";
 import type { SidebarView } from "../types";
 import type { Theme } from "../lib/theme";
+import { notifySyncPreferenceChanged, observeAppliedSyncPreferences } from "../lib/syncPreferences";
 import type { PluginToolContribution, PluginToolKind } from "@denote/plugin-sdk";
 import type { PluginCodeContribution } from "../plugins/codeIntelligence";
 import type {
@@ -188,6 +190,9 @@ function ActivityRailComponent({
   onThemeToggle,
 }: ActivityRailProps) {
   const [preferences, setPreferences] = useState(loadPluginRailPreferences);
+  useEffect(() => observeAppliedSyncPreferences((keys) => {
+    if (keys.includes(PLUGIN_RAIL_STORAGE_KEY)) setPreferences(loadPluginRailPreferences());
+  }), []);
   const [dragged, setDragged] = useState<string | null>(null);
   const items = useMemo<PluginRailItem[]>(() => {
     const toolKinds = new Map(toolProviders.map((provider) => [provider.id, provider.kind]));
@@ -289,7 +294,7 @@ function ActivityRailComponent({
         title: tool.title,
         selected: activePluginView === tool.id,
         kind: "view" as const,
-        icon: tool.feature === "speech" ? Mic : KeyRound,
+        icon: tool.feature === "speech" ? Mic : tool.feature === "sync" ? RefreshCw : KeyRound,
         onSelect: () => onPluginViewChange(tool.id),
       })),
       ...sourceItems,
@@ -656,6 +661,7 @@ function loadPluginRailPreferences(): PluginRailPreferences {
 function savePluginRailPreferences(preferences: PluginRailPreferences) {
   try {
     localStorage.setItem(PLUGIN_RAIL_STORAGE_KEY, JSON.stringify(preferences));
+    notifySyncPreferenceChanged(PLUGIN_RAIL_STORAGE_KEY);
   } catch (error) {
     console.error("Unable to save plugin rail preferences:", error);
   }

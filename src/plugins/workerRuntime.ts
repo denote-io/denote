@@ -460,6 +460,12 @@ export class PluginWorkerRuntime {
       runtime.phase = "stopping";
       await Promise.allSettled([...runtime.hostRequests]);
       this.terminate(pluginId);
+      // Host sync runs without the worker, so an orderly stop (disable,
+      // update, settings reload) cancels a running cycle as well.
+      if (runtime.permissions.has("sync")) {
+        try { await api.stopSensitiveTools(pluginId); }
+        catch (error) { this.onError(pluginId, error); }
+      }
     }
   }
 
@@ -2539,7 +2545,7 @@ export class PluginWorkerRuntime {
       catch (error) { this.onError(pluginId, error); }
     }
     this.publishAuthoring();
-    if (runtime.permissions.has("speech") || runtime.permissions.has("credential-store")) {
+    if (runtime.permissions.has("speech") || runtime.permissions.has("credential-store") || runtime.permissions.has("sync")) {
       try { await api.stopSensitiveTools(pluginId); }
       catch (error) { this.onError(pluginId, error); }
     }
@@ -2591,9 +2597,11 @@ export class PluginWorkerRuntime {
   }
 
   private publishAuthoring(): void {
+    // The sync tool is app-wide; the other sensitive tools belong to the
+    // workspace their runtime started in.
     this.onSensitiveToolsChanged([...this.runtimes.values()].flatMap((runtime) =>
-      runtime.phase === "active" && runtime.workspaceIdentity === this.workspaceIdentity
-        ? [...runtime.sensitiveTools.values()] : []));
+      runtime.phase !== "active" ? [] : [...runtime.sensitiveTools.values()].filter((tool) =>
+        tool.feature === "sync" || runtime.workspaceIdentity === this.workspaceIdentity)));
     this.onAuthoringChanged([...this.runtimes.values()].flatMap((runtime) =>
       runtime.phase === "active" && runtime.workspaceIdentity === this.workspaceIdentity
         ? [...runtime.authoringProviders.values()] : []));

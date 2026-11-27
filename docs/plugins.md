@@ -265,10 +265,11 @@ concurrent.
   corrupt general state file does not strand known secrets.
 - General plugin service secrets must use the OS-backed keychain implementation, never manifests,
   settings, logs, caches, packages, or telemetry.
-- The isolated `speech` and `credential-store` contracts register host-rendered
-  tools only. They cannot be combined with other permissions. Downloaded code
-  never receives audio, transcripts, entries, passwords, keys, device handles,
-  or clipboard values. Microphone, model download, reveal, copy, and export each
+- The isolated `speech`, `credential-store`, and `sync` contracts register
+  host-rendered tools only. They cannot be combined with other permissions.
+  Downloaded code never receives audio, transcripts, entries, passwords, keys,
+  device handles, clipboard values, synced data, sync credentials, or the sync
+  passphrase. Microphone, model download, reveal, copy, and export each
   require their own explicit host action.
   Their existing registrations also produce host-owned activity-rail entries
   and non-modal sidebars. This is not a worker `sidebar` registration and does
@@ -281,6 +282,10 @@ concurrent.
   general plugin secure storage: all fields in `.denote/credentials.dncred`
   use independent authenticated encryption and a memory-hard master-password
   KDF. Plugin data/credential cleanup must never delete or decrypt it.
+- Whole-app sync (see [below](#whole-app-sync)) is app-wide rather than
+  vault-bound: the tool stays available across vault switches and while the
+  open vault is locked, and only the trusted host reads, encrypts, transfers, or
+  writes synced data.
 - Speech's public model weights are reusable derived assets; its optional
   native runtime code is removed when the last speech provider is disabled.
   Whole-vault encryption protects saved audio. Ordinary relative audio links
@@ -338,6 +343,46 @@ version 1.
 The additive `code-intelligence`, `tooling`, and `terminal` contracts below own
 their separately approved sessions. They do not give plugin workers a process
 handle or turn bounded `process.run` into a persistent shell.
+
+### Whole-app sync
+
+The optional `denote.sync` plugin from
+[denote-io/denote-sync](https://github.com/denote-io/denote-sync) declares only
+the isolated `sync` permission and calls
+`context.capabilities.sensitiveTools.register({ id: "denote.sync.tool", title: "Sync", feature: "sync" })`.
+That registration is the whole worker contract: there is no request handler,
+settings surface, network, storage, or workspace capability. The SDK and the
+host refuse a manifest that combines `sync` with any other permission and a
+registration whose feature was not approved.
+
+The trusted host owns everything else. `src-tauri/src/sync/` owns enrollment,
+backends, credentials, encryption, scanning, merging, scheduling, and file
+application; the renderer owns the host-rendered **Sync** panel
+(`src/components/SyncPanel.tsx`) and the preference bridge. The
+[sync reference](sync.md) defines the scope, remote format, cryptography,
+merge rules, native commands, payloads, and events; its
+[renderer integration](sync.md#renderer-integration) section describes the
+panel, preference push and apply, tree refresh, and plugin reloads.
+
+Security boundaries:
+
+- Remote data is always end-to-end encrypted with a mandatory sync passphrase.
+  The panel requires at least 12 characters and confirmation when creating
+  storage and warns that a lost passphrase makes remote data unrecoverable.
+- Secrets travel only from renderer to host and are never returned. The panel
+  keeps them in password inputs, reads them once on submit, and clears them
+  immediately, on failure, and on unmount. Storage credentials and a remembered
+  passphrase live only in the operating-system keychain.
+- Sync works whichever vault is open and does not require unlocking an
+  encrypted vault, but app lock, safe mode, a disabled, crashed, or updating
+  plugin, and `stop_sensitive_tools` stop it. Disabling keeps the
+  configuration; **Disconnect** removes local configuration, index, and
+  keychain entries and never deletes local files or remote data.
+- Received preferences are limited to the portable allowlist; trust, network
+  consent, update, and automation preferences stay local. Plugin settings and
+  state are applied through validated settings import followed by an ordinary
+  worker restart. Plugins enabled elsewhere are only suggestions linking to
+  plugin settings: sync never downloads, approves, or enables a plugin.
 
 ### Code intelligence and native protocol sessions
 

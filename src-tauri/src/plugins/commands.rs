@@ -1236,7 +1236,7 @@ pub async fn plugin_git_clone_vault(
     // validation, so a half-finished clone never becomes a known vault.
         let opened = (|| {
             let _tools = manager.quiesce_native_tools()?;
-            let _access = app_state.write_vault_access()?;
+            let _access = app_state.transition_vault_access()?;
             active_vault_for_scope(&app_state, &workspace_scope)?;
             commands::seal_active_vault_before_switch(&app_state)?;
             let mut snapshot = vault::open_vault(&app_state.db_path, &clone.path.to_string_lossy())?;

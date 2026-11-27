@@ -156,6 +156,24 @@ impl AppState {
         Ok(access)
     }
 
+    /// Exclusive vault access for locking the app or a vault, or switching
+    /// vaults. Running sync is cancelled before waiting, so a sync apply
+    /// releases the vault after its current batch instead of holding the
+    /// transition, and the window, until every file is written.
+    pub fn transition_vault_access(&self) -> AppResult<RwLockWriteGuard<'_, ()>> {
+        self.cancel_sync_then_write_vault_access(None)
+    }
+
+    /// Cancels the running sync operations of `plugin_id` (all for `None`),
+    /// then waits for exclusive vault access.
+    pub(crate) fn cancel_sync_then_write_vault_access(
+        &self,
+        plugin_id: Option<&str>,
+    ) -> AppResult<RwLockWriteGuard<'_, ()>> {
+        crate::sync::service::cancel_running(plugin_id);
+        self.write_vault_access()
+    }
+
     pub fn allow_exit(&self) {
         self.allow_exit.store(true, Ordering::SeqCst);
     }

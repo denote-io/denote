@@ -41,6 +41,7 @@ vi.mock("../lib/api", () => ({
     startCodeSession: vi.fn(),
     codeProtocol: vi.fn(),
     stopCodeSessions: vi.fn(async () => {}),
+    stopSensitiveTools: vi.fn(async () => {}),
   },
   errorMessage: (error: unknown) =>
     error instanceof Error ? error.message : String(error),
@@ -1575,6 +1576,38 @@ describe("PluginWorkerRuntime", () => {
     await expect(runtime.requestClocks("denote.reference", "denote.reference.clocks", request)).resolves.toEqual(model);
     await runtime.stop("denote.reference");
     await expect(runtime.requestClocks("denote.reference", "denote.reference.clocks", request)).rejects.toThrow(/running|registered/i);
+  });
+
+  it("registers the isolated sync tool, keeps it across vault changes, and stops native sync on teardown", async () => {
+    await bridgeRealPluginWorker();
+    const source = plugin();
+    source.approvedPermissions = [{ capability: "sync" }];
+    source.catalog = { ...source.catalog, manifest: { ...source.catalog.manifest, permissions: source.approvedPermissions } };
+    vi.mocked(api.readPluginEntrypoint).mockResolvedValue(`export default {
+      manifest: ${JSON.stringify(source.catalog.manifest)},
+      activate(context) {
+        const granted = Object.keys(context.capabilities).filter((key) => context.capabilities[key]);
+        if (granted.join() !== "sensitiveTools") throw Error("Unexpected privilege: " + granted.join());
+        context.subscriptions.add(context.capabilities.sensitiveTools.register({
+          id: "denote.reference.sync", title: "Sync", feature: "sync",
+        }));
+      }
+    };`);
+    const tools = vi.fn();
+    // Every contribution callback before onAuthoringChanged and onSensitiveToolsChanged.
+    const handlers = Array.from({ length: 17 }, () => undefined);
+    const onError = vi.fn();
+    const runtime = new PluginWorkerRuntime(vi.fn(), onError, ...handlers, vi.fn(), tools);
+    runtime.setWorkspaceIdentity(VAULT_ALPHA);
+    await runtime.start(source);
+    const syncTool = { pluginId: "denote.reference", id: "denote.reference.sync", title: "Sync", feature: "sync" };
+    await vi.waitFor(() => expect(tools).toHaveBeenLastCalledWith([syncTool]));
+    runtime.setWorkspaceIdentity(VAULT_BETA);
+    expect(runtime.isRunning("denote.reference")).toBe(true);
+    await runtime.stop("denote.reference");
+    expect(api.stopSensitiveTools).toHaveBeenCalledWith("denote.reference");
+    expect(tools).toHaveBeenLastCalledWith([]);
+    expect(onError).not.toHaveBeenCalled();
   });
 
   it("runs time tracking in the real isolated worker and expires its vault scope", async () => {

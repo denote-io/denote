@@ -3,6 +3,7 @@ import {
   KeyRound,
   LockKeyhole,
   Moon,
+  RefreshCw,
   Settings2,
   Sun,
 } from "lucide-react";
@@ -15,6 +16,8 @@ interface VaultUnlockScreenProps {
   onThemeToggle: () => void;
   onShowVaults: () => void;
   onSettings?: () => void;
+  /** Sync runs without unlocking this vault, so it stays reachable here. */
+  onOpenSync?: () => void;
   onUnlockWithPassword: (password: string) => Promise<void>;
   onUnlockWithRecoveryCode: (recoveryCode: string) => Promise<void>;
 }
@@ -25,6 +28,7 @@ export function VaultUnlockScreen({
   onThemeToggle,
   onShowVaults,
   onSettings,
+  onOpenSync,
   onUnlockWithPassword,
   onUnlockWithRecoveryCode,
 }: VaultUnlockScreenProps) {
@@ -63,6 +67,12 @@ export function VaultUnlockScreen({
           <button type="button" className="icon-button" aria-label="Open settings" title="Settings"
             disabled={busy} onClick={onSettings}>
             <Settings2 aria-hidden="true" size={17} />
+          </button>
+        ) : null}
+        {onOpenSync ? (
+          <button type="button" className="icon-button" aria-label="Open sync" title="Sync"
+            disabled={busy} onClick={onOpenSync}>
+            <RefreshCw aria-hidden="true" size={17} />
           </button>
         ) : null}
         <button

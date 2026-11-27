@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, fs};
 
 use super::{
-    sandbox::{HOST_GIT_SIGNING_SECRET_PREFIX, load_credential_ledger},
+    sandbox::{HOST_GIT_SIGNING_SECRET_PREFIX, HOST_SYNC_SECRET_PREFIX, load_credential_ledger},
     tests::{catalog, manager},
 };
 use crate::error::AppError;
@@ -31,6 +31,20 @@ fn signing_credentials_are_unavailable_to_the_plugin_secret_api() {
     );
     assert!(manager.secret_set(id, &key, "synthetic").is_err());
     assert!(manager.secret_delete(id, &key).is_err());
+    for key in [
+        format!("{HOST_SYNC_SECRET_PREFIX}master-key"),
+        format!("{HOST_SYNC_SECRET_PREFIX}backend"),
+    ] {
+        assert!(
+            manager
+                .secret_get(id, &key)
+                .expect_err("sync secret read")
+                .to_string()
+                .contains("host-owned")
+        );
+        assert!(manager.secret_set(id, &key, "synthetic").is_err());
+        assert!(manager.secret_delete(id, &key).is_err());
+    }
 }
 
 #[test]
