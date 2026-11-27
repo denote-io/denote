@@ -955,7 +955,7 @@ dependencies = [
 
 [[package]]
 name = "denote"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "apple-native-keyring-store",
  "argon2",
