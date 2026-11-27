@@ -907,7 +907,10 @@ mod tests {
         let status = std::process::Command::new(&executable)
             .args(["init", "--quiet", "--bare"])
             .arg(git_cli_path(&remote))
-            .env("GIT_CONFIG_GLOBAL", root.join("global-config"))
+            .env(
+                "GIT_CONFIG_GLOBAL",
+                git_cli_path(&root.join("global-config")),
+            )
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .status()
             .unwrap();
