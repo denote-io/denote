@@ -511,7 +511,7 @@ pub(crate) async fn lock_app<R: tauri::Runtime>(
         }
         plugins.cancel_all_git_operations();
         let _tools = plugins.quiesce_native_tools()?;
-        let _vault_access = state.write_vault_access()?;
+        let _vault_access = state.transition_vault_access()?;
         crate::commands::seal_active_vault_before_switch(&state)?;
         state.clear_vault_key()?;
         plugins.clear_clipboard_files()?;

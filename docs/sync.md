@@ -271,7 +271,9 @@ One cycle:
    exact content (verified by its object ID), otherwise downloaded and
    verified. A download that fails is reported and retried next cycle; the
    entry stays in the index, so nothing is forgotten.
-6. **Apply** under the vault's native mutation lock. Immediately before each
+6. **Apply** under the vault's native mutation lock, taken for one bounded
+   batch at a time (at most 16 files or about 200 ms) and released between
+   batches, with cancellation checked before each file. Immediately before each
    write the current file is revalidated against the scanned size,
    modification time, and hash. A file changed since the scan is left alone
    and retried next cycle. Writes that keep content another write replaces or
@@ -335,7 +337,9 @@ minutes, 0 for manual only), shortly after the application starts, and when
 safe mode, or after the plugin is disabled, crashes, or is being updated;
 `stop_sensitive_tools`, revoking a plugin, locking the app, or locking or
 switching a vault cancels a running cycle at the next file boundary, and the
-journal makes the cancelled cycle restartable. The same cancellation, and
+journal makes the cancelled cycle restartable. Locking the app, locking a
+vault, and switching vaults cancel sync before they wait for exclusive vault
+access, so they wait at most for the apply batch in progress. The same cancellation, and
 **Cancel sync** or **Disconnect** on this device, also stops a setup, unlock,
 device removal, or passphrase change that is talking to storage. Every cycle
 and storage operation has its own cancellation token, so a cancellation only

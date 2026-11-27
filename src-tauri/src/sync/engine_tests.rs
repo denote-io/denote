@@ -110,7 +110,16 @@ impl Device {
         keys: &Keys,
         cancel: bool,
     ) -> (AppResult<()>, CycleReport) {
-        let cancel = AtomicBool::new(cancel);
+        self.try_sync_with(backend, keys, &AtomicBool::new(cancel), &NoLock)
+    }
+
+    fn try_sync_with(
+        &self,
+        backend: &dyn Backend,
+        keys: &Keys,
+        cancel: &AtomicBool,
+        vault_lock: &dyn VaultLock,
+    ) -> (AppResult<()>, CycleReport) {
         let staging = self.directory.path().join("sync/staging");
         let engine = Engine {
             store: &self.store,
@@ -118,9 +127,9 @@ impl Device {
             keys,
             app_db: &self.app_db,
             plugins: Some(&self.plugins),
-            vault_lock: &NoLock,
+            vault_lock,
             staging: &staging,
-            cancel: &cancel,
+            cancel,
             progress: &|_, _, _| {},
             app_version: "test",
         };
@@ -1057,5 +1066,65 @@ fn a_retried_head_upload_that_already_landed_counts_as_published() {
     assert_eq!(laptop.identity().writer_id, writer);
     desk.sync(&backend, &keys);
     assert!(!desk_root.join("b.md").exists());
+    assert_eq!(tree(&desk_root), tree(&laptop_root));
+}
+
+/// Counts acquisitions of the vault lock. A vault lock or switch that waited
+/// behind the first one cancels sync before it gets the lock, as the host does.
+struct InterruptingLock<'a> {
+    cancel: &'a AtomicBool,
+    acquisitions: std::sync::atomic::AtomicUsize,
+}
+
+impl VaultLock for InterruptingLock<'_> {
+    fn with_vault_lock(&self, operation: &mut dyn FnMut() -> AppResult<()>) -> AppResult<()> {
+        if self
+            .acquisitions
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            == 1
+        {
+            self.cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+        operation()
+    }
+}
+
+#[test]
+fn applying_a_large_vault_releases_the_vault_lock_between_batches() {
+    let backend = MemoryBackend::default();
+    let keys = repository(&backend);
+    let laptop = Device::new("Laptop", &keys);
+    let desk = Device::new("Desk", &keys);
+    let (laptop_root, laptop_scope) = laptop.add_vault("Notes");
+    let (desk_root, desk_scope) = desk.add_vault("Notes");
+    laptop.map(VAULT, &laptop_scope);
+    desk.map(VAULT, &desk_scope);
+    for index in 0..(APPLY_BATCH_FILES * 3) {
+        write(
+            &laptop_root,
+            &format!("n{index:03}.md"),
+            &format!("note {index}"),
+        );
+    }
+    laptop.sync(&backend, &keys);
+
+    let cancel = AtomicBool::new(false);
+    let lock = InterruptingLock {
+        cancel: &cancel,
+        acquisitions: std::sync::atomic::AtomicUsize::new(0),
+    };
+    let (result, report) = desk.try_sync_with(&backend, &keys, &cancel, &lock);
+    assert!(
+        result.unwrap_err().to_string().contains("cancelled"),
+        "the cancellation reaches the apply between batches"
+    );
+    let applied = tree(&desk_root).len();
+    assert!(
+        applied > 0 && applied <= APPLY_BATCH_FILES,
+        "applied {applied} files under one acquisition"
+    );
+    assert_eq!(report.applied, applied);
+
+    desk.sync(&backend, &keys);
     assert_eq!(tree(&desk_root), tree(&laptop_root));
 }

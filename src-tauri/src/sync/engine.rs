@@ -5,7 +5,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use serde::Serialize;
@@ -41,6 +41,10 @@ use crate::{
 /// Generations tried per writer before giving up on it for this cycle.
 const MAX_FALLBACK_GENERATIONS: usize = 8;
 const MAX_LISTED_OBJECTS: usize = 5_000_000;
+/// Most files applied under one acquisition of the vault lock.
+const APPLY_BATCH_FILES: usize = 16;
+/// A batch releases the vault lock once it has held it this long.
+const APPLY_BATCH_TIME: Duration = Duration::from_millis(200);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -1179,86 +1183,120 @@ impl Engine<'_> {
                 preserving.into_iter().chain(rest).cloned().collect()
             };
             let mut applied_here = 0usize;
-            let mut run = || -> AppResult<()> {
-                let _vault_lock = crate::vault::acquire_vault_control_lock(&vault.root)?;
-                let mut cache = DirectoryCache::default();
-                for key in &ordered {
+            let mut next = 0usize;
+            let mut result = Ok(());
+            // The vault lock is held for one bounded batch at a time, so locking
+            // the app or a vault, or switching vaults, waits at most one batch
+            // and its cancellation stops the rest.
+            while next < ordered.len() {
+                let mut run = || -> AppResult<()> {
                     self.check_cancel()?;
-                    done += 1;
-                    (self.progress)(Phase::Apply, done, total);
-                    let path = key.strip_prefix(&prefix).unwrap_or_default().to_string();
-                    if let Some(local_id) = index.get(key).and_then(observed_object)
-                        && unsaved_conflict_copy(&index, &merged.copies, sync_id, &path, local_id)
-                    {
-                        report.skipped.push(format!(
-                            "{}: {path}: kept until its conflict copy is saved; it will be retried",
-                            vault.db.name
-                        ));
-                        continue;
-                    }
-                    let Some(row) = index.get_mut(key) else {
-                        continue;
-                    };
-                    let expected = match row
-                        .observed
-                        .as_ref()
-                        .and_then(|observed| present(Some(&observed.value)))
-                    {
-                        Some(EntryValue::Object { id, .. }) => match row.fingerprint {
-                            Some(fingerprint) => Expected::File {
-                                disk_path: disk_paths
-                                    .get(key)
-                                    .cloned()
-                                    .unwrap_or_else(|| PathBuf::from(&path)),
-                                fingerprint,
-                                id: id.clone(),
-                            },
-                            None => continue,
-                        },
-                        Some(_) => continue,
-                        None => Expected::Absent,
-                    };
-                    let staged_path;
-                    let change = match &row.entry.value {
-                        EntryValue::Object { id, mode, .. } => {
-                            let Some(path) = staged.get(id) else {
-                                continue;
-                            };
-                            staged_path = path.clone();
-                            Change::Write {
-                                staged: &staged_path,
-                                mode: *mode,
-                                modified_ms: row.entry.modified_at,
-                            }
+                    let _vault_lock = crate::vault::acquire_vault_control_lock(&vault.root)?;
+                    let mut cache = DirectoryCache::default();
+                    let started = Instant::now();
+                    let mut in_batch = 0usize;
+                    while let Some(key) = ordered.get(next) {
+                        if in_batch == APPLY_BATCH_FILES
+                            || (in_batch > 0 && started.elapsed() >= APPLY_BATCH_TIME)
+                        {
+                            break;
                         }
-                        EntryValue::Tombstone => Change::Remove,
-                        EntryValue::Inline { .. } => {
-                            report
-                                .skipped
-                                .push(format!("{}: {path}: invalid synced value", vault.db.name));
+                        self.check_cancel()?;
+                        in_batch += 1;
+                        next += 1;
+                        done += 1;
+                        (self.progress)(Phase::Apply, done, total);
+                        let path = key.strip_prefix(&prefix).unwrap_or_default().to_string();
+                        if let Some(local_id) = index.get(key).and_then(observed_object)
+                            && unsaved_conflict_copy(
+                                &index,
+                                &merged.copies,
+                                sync_id,
+                                &path,
+                                local_id,
+                            )
+                        {
+                            report.skipped.push(format!(
+                                "{}: {path}: kept until its conflict copy is saved; it will be retried",
+                                vault.db.name
+                            ));
                             continue;
                         }
-                    };
-                    match apply_file(&vault.root, &path, &expected, change, self.keys, &mut cache) {
-                        Ok(Outcome::Applied(fingerprint)) => {
-                            row.observed = Some(Observed {
-                                value: row.entry.value.clone(),
-                                vv: row.entry.vv.clone(),
-                            });
-                            row.fingerprint = fingerprint;
-                            applied_here += 1;
+                        let Some(row) = index.get_mut(key) else {
+                            continue;
+                        };
+                        let expected = match row
+                            .observed
+                            .as_ref()
+                            .and_then(|observed| present(Some(&observed.value)))
+                        {
+                            Some(EntryValue::Object { id, .. }) => match row.fingerprint {
+                                Some(fingerprint) => Expected::File {
+                                    disk_path: disk_paths
+                                        .get(key)
+                                        .cloned()
+                                        .unwrap_or_else(|| PathBuf::from(&path)),
+                                    fingerprint,
+                                    id: id.clone(),
+                                },
+                                None => continue,
+                            },
+                            Some(_) => continue,
+                            None => Expected::Absent,
+                        };
+                        let staged_path;
+                        let change = match &row.entry.value {
+                            EntryValue::Object { id, mode, .. } => {
+                                let Some(path) = staged.get(id) else {
+                                    continue;
+                                };
+                                staged_path = path.clone();
+                                Change::Write {
+                                    staged: &staged_path,
+                                    mode: *mode,
+                                    modified_ms: row.entry.modified_at,
+                                }
+                            }
+                            EntryValue::Tombstone => Change::Remove,
+                            EntryValue::Inline { .. } => {
+                                report.skipped.push(format!(
+                                    "{}: {path}: invalid synced value",
+                                    vault.db.name
+                                ));
+                                continue;
+                            }
+                        };
+                        match apply_file(
+                            &vault.root,
+                            &path,
+                            &expected,
+                            change,
+                            self.keys,
+                            &mut cache,
+                        ) {
+                            Ok(Outcome::Applied(fingerprint)) => {
+                                row.observed = Some(Observed {
+                                    value: row.entry.value.clone(),
+                                    vv: row.entry.vv.clone(),
+                                });
+                                row.fingerprint = fingerprint;
+                                applied_here += 1;
+                            }
+                            Ok(Outcome::Skipped(reason)) => {
+                                report.skipped.push(format!("{}: {reason}", vault.db.name))
+                            }
+                            Err(error) => report
+                                .skipped
+                                .push(format!("{}: {path}: {error}", vault.db.name)),
                         }
-                        Ok(Outcome::Skipped(reason)) => {
-                            report.skipped.push(format!("{}: {reason}", vault.db.name))
-                        }
-                        Err(error) => report
-                            .skipped
-                            .push(format!("{}: {path}: {error}", vault.db.name)),
                     }
+                    Ok(())
+                };
+                result = self.vault_lock.with_vault_lock(&mut run);
+                if result.is_err() {
+                    break;
                 }
-                Ok(())
-            };
-            let result = self.vault_lock.with_vault_lock(&mut run);
+            }
             if applied_here > 0 {
                 report.applied += applied_here;
                 report.vault_roots.insert(vault.db.path.clone());

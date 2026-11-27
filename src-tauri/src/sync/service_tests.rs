@@ -588,3 +588,32 @@ fn a_queued_cycle_honors_cancellation_and_authorization_changes() {
     device.run();
     assert!(heads.exists());
 }
+
+#[test]
+fn locking_or_switching_vaults_cancels_sync_before_waiting_for_the_vault() {
+    let data = tempfile::tempdir().unwrap();
+    let state = Arc::new(db::AppState::new(data.path().join("denote.sqlite3"), None));
+    let operation = Operation::begin(u64::MAX, "denote.sync.transition-test-only");
+    let token = operation.token().clone();
+    let (held, holding) = std::sync::mpsc::channel();
+    // Like a sync apply batch, the holder keeps the vault until it is cancelled.
+    let holder = {
+        let state = state.clone();
+        thread::spawn(move || {
+            let _access = state.write_vault_access().unwrap();
+            held.send(()).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while !token.load(Ordering::SeqCst) && Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(5));
+            }
+            token.load(Ordering::SeqCst)
+        })
+    };
+    holding.recv().unwrap();
+    let _access = state.transition_vault_access().unwrap();
+    assert!(
+        holder.join().unwrap(),
+        "sync was cancelled before the transition waited for the vault"
+    );
+    drop(operation);
+}
