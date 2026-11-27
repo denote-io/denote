@@ -830,7 +830,7 @@ republished unchanged as plugin repository releases, with the same size,
 SHA-256, manifest, and guide; they keep the `mbianchidev/denote` commit that
 built them. Later versions record the release tag commit in the plugin
 repository. Each plugin repository keeps the `releases.json` history of
-versions published from this repository. Eighteen of the twenty current
+versions published from this repository. Nineteen of the twenty-one current
 archives rebuild byte for byte from their plugin repositories; Emoji picker
 0.1.3 and Mermaid 0.3.0 were built against an earlier SDK revision, and their
 CI exempts only those exact versions.

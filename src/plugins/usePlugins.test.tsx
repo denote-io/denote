@@ -704,6 +704,7 @@ describe("usePlugins", () => {
     "denote.linter": "stops while locked",
     "denote.compiler": "stops while locked",
     "denote.terminal": "stops while locked",
+    "denote.sync": "keeps running",
   };
 
   it("declares a locked-vault contract for every catalog plugin", () => {
