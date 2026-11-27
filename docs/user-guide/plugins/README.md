@@ -25,6 +25,7 @@ trying its view. Opening an example never installs or enables a plugin.
 | Markdown presentation slides | [Presentation deck](<Presentation.md>) | Edit Source beside preview, reorder slides, and present with keyboard playback |
 | Speech, voice notes, and transcription | [Speech practice](<Speech.md>) | Read synthetic text aloud, explicitly record a voice note, and review a local transcript |
 | Encrypted credential store | [Credential store practice](<Credential store.md>) | Store invented entries behind an independent master password and try authenticated export |
+| Whole-app sync | [Sync practice](<Sync.md>) | Set up end-to-end encrypted sync to a throwaway folder and see that only opaque objects reach storage |
 
 Disable a plugin at any time; the files remain. Time tracking asks for
 confirmation before stopping an active timer. Git is a written, opt-in

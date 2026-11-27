@@ -29,11 +29,30 @@ pub(super) fn catalog() -> PluginCatalogEntry {
         .remove(0)
 }
 
+/// Catalog plugins that need host support first published after 1.0.0, with
+/// the first Denote release that provides it. Every other plugin runs on all of 1.x.
+const LATER_MINIMUM: &[(&str, &str)] = &[("denote.sync", "1.1.0")];
+
 #[test]
 fn every_catalog_plugin_supports_api_one_hosts_throughout_denote_one_x() {
     let entries: Vec<PluginCatalogEntry> = serde_json::from_str(CATALOG_JSON).expect("catalog");
-    for host in ["1.0.0-rc.1", "1.0.0", "1.42.0"] {
-        for entry in &entries {
+    for entry in &entries {
+        let minimum = LATER_MINIMUM
+            .iter()
+            .find(|(id, _)| *id == entry.manifest.id)
+            .map(|(_, minimum)| *minimum);
+        let hosts: &[&str] = match minimum {
+            Some(minimum) => {
+                assert!(
+                    compatibility_error_for_host(entry, "1.0.0").is_some(),
+                    "{} on Denote 1.0.0",
+                    entry.manifest.id,
+                );
+                &[minimum, "1.42.0"]
+            }
+            None => &["1.0.0-rc.1", "1.0.0", "1.42.0"],
+        };
+        for host in hosts {
             assert_eq!(
                 compatibility_error_for_host(entry, host),
                 None,
