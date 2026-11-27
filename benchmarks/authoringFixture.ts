@@ -192,6 +192,13 @@ mockIPC((command, payload) => {
       return { kind: "done" };
     }
     case "credential_transfer": return { kind: "prepared", ticket: "synthetic-transfer" };
+    case "sync_status": return {
+      state: "not-configured", backend: null, rememberPassphrase: false,
+      options: { intervalMinutes: 15, paused: false, syncHistory: true, syncPreferences: true, syncPluginData: true },
+      progress: null, lastRun: null, device: null, devices: [], vaults: [], conflicts: [],
+      pluginSuggestions: [], warnings: [],
+    };
+    case "sync_put_preferences": return null;
     case "plugin:window|is_fullscreen": return state.nativeFullscreen;
     case "plugin:window|set_fullscreen": {
       const value = field(payload, "value");
