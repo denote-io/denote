@@ -610,7 +610,10 @@ fn locking_or_switching_vaults_cancels_sync_before_waiting_for_the_vault() {
         })
     };
     holding.recv().unwrap();
-    let _access = state.transition_vault_access().unwrap();
+    // Scoped to this test's operation so parallel tests are not cancelled.
+    let _access = state
+        .cancel_sync_then_write_vault_access(Some("denote.sync.transition-test-only"))
+        .unwrap();
     assert!(
         holder.join().unwrap(),
         "sync was cancelled before the transition waited for the vault"
