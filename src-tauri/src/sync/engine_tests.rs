@@ -1128,3 +1128,129 @@ fn applying_a_large_vault_releases_the_vault_lock_between_batches() {
     desk.sync(&backend, &keys);
     assert_eq!(tree(&desk_root), tree(&laptop_root));
 }
+
+/// Empties a vault folder in place, like an unmounted drive or an offline
+/// cloud folder: the folder stays, everything in it is gone.
+fn empty_folder(root: &Path) {
+    for item in fs::read_dir(root).unwrap() {
+        let path = item.unwrap().path();
+        if path.is_dir() {
+            fs::remove_dir_all(path).unwrap();
+        } else {
+            fs::remove_file(path).unwrap();
+        }
+    }
+}
+
+#[test]
+fn an_emptied_vault_folder_without_its_denote_folder_publishes_no_deletions() {
+    let backend = MemoryBackend::default();
+    let keys = repository(&backend);
+    let laptop = Device::new("Laptop", &keys);
+    let desk = Device::new("Desk", &keys);
+    let (laptop_root, laptop_scope) = laptop.add_vault("Notes");
+    let (desk_root, desk_scope) = desk.add_vault("Notes");
+    laptop.map(VAULT, &laptop_scope);
+    desk.map(VAULT, &desk_scope);
+    // Denote creates `.denote/locks` in every vault it opens.
+    fs::create_dir_all(laptop_root.join(".denote/locks")).unwrap();
+    write(&laptop_root, "a.md", "alpha");
+    write(&laptop_root, "notes/b.md", "beta");
+    laptop.sync(&backend, &keys);
+    desk.sync(&backend, &keys);
+
+    empty_folder(&laptop_root);
+    let report = laptop.sync(&backend, &keys);
+    assert_eq!(report.published, None, "{:?}", report.warnings);
+    let rows = store::list_vaults(&laptop.store.connection().unwrap()).unwrap();
+    assert!(
+        rows[0]
+            .message
+            .as_deref()
+            .is_some_and(|message| message.contains(".denote")),
+        "{rows:?}"
+    );
+    desk.sync(&backend, &keys);
+    assert_eq!(fs::read_to_string(desk_root.join("a.md")).unwrap(), "alpha");
+    assert_eq!(
+        fs::read_to_string(desk_root.join("notes/b.md")).unwrap(),
+        "beta"
+    );
+
+    // Once the files are back, the vault syncs again without any deletion.
+    write(&laptop_root, "a.md", "alpha");
+    write(&laptop_root, "notes/b.md", "beta");
+    fs::create_dir_all(laptop_root.join(".denote/locks")).unwrap();
+    laptop.sync(&backend, &keys);
+    desk.sync(&backend, &keys);
+    assert_eq!(tree(&desk_root), tree(&laptop_root));
+}
+
+#[test]
+fn remote_deletions_move_files_into_the_vault_trash() {
+    let backend = MemoryBackend::default();
+    let keys = repository(&backend);
+    let laptop = Device::new("Laptop", &keys);
+    let desk = Device::new("Desk", &keys);
+    let (laptop_root, laptop_scope) = laptop.add_vault("Notes");
+    let (desk_root, desk_scope) = desk.add_vault("Notes");
+    laptop.map(VAULT, &laptop_scope);
+    desk.map(VAULT, &desk_scope);
+    write(&laptop_root, "keep.md", "kept");
+    write(&laptop_root, "notes/gone.md", "deleted on the laptop");
+    write(
+        &laptop_root,
+        ".denote/note-comments.json",
+        "{\"synthetic\":true}",
+    );
+    laptop.sync(&backend, &keys);
+    desk.sync(&backend, &keys);
+
+    fs::remove_file(laptop_root.join("notes/gone.md")).unwrap();
+    fs::remove_file(laptop_root.join(".denote/note-comments.json")).unwrap();
+    laptop.sync(&backend, &keys);
+    let report = desk.sync(&backend, &keys);
+    assert_eq!(report.applied, 2, "{:?}", report.skipped);
+    assert!(!desk_root.join("notes").exists());
+    assert!(!desk_root.join(".denote/note-comments.json").exists());
+
+    let connection = db::open(&desk.app_db).unwrap();
+    let vault_id = metadata::vault_by_scope(&connection, &desk_scope)
+        .unwrap()
+        .unwrap()
+        .id;
+    let trash = db::list_trash(&connection, vault_id).unwrap();
+    assert_eq!(trash.len(), 1, "{trash:?}");
+    assert_eq!(trash[0].original_path, "notes/gone.md");
+    let trashed: Vec<(String, Vec<u8>)> = walkdir::WalkDir::new(desk_root.join(".denote/trash"))
+        .into_iter()
+        .map(Result::unwrap)
+        .filter(|item| item.file_type().is_file())
+        .map(|item| {
+            (
+                item.path()
+                    .strip_prefix(&desk_root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/"),
+                fs::read(item.path()).unwrap(),
+            )
+        })
+        .collect();
+    assert!(
+        trashed
+            .iter()
+            .any(|(path, bytes)| path.ends_with("/gone.md") && bytes == b"deleted on the laptop"),
+        "{trashed:?}"
+    );
+    assert!(
+        trashed
+            .iter()
+            .any(|(path, bytes)| path.starts_with(".denote/trash/sync/")
+                && path.ends_with("/.denote/note-comments.json")
+                && bytes == b"{\"synthetic\":true}"),
+        "{trashed:?}"
+    );
+    assert_eq!(tree(&desk_root), tree(&laptop_root));
+    assert_eq!(desk.sync(&backend, &keys).published, None);
+}

@@ -2,7 +2,7 @@
 //! See `docs/sync.md` ("Scheduling and lifecycle" and "Native commands").
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     fs,
     path::{Path, PathBuf},
     sync::{
@@ -37,7 +37,7 @@ use super::{
         LastRunRecord, ProgressView, SuggestionView, SyncAppliedEvent, SyncState, SyncStatusView,
         VaultView, VaultViewState,
     },
-    store::{self, Identity, Store, VaultRow, VaultState},
+    store::{self, DeletionHold, Identity, Store, VaultRow, VaultState},
 };
 use crate::{
     db,
@@ -430,7 +430,7 @@ impl SyncService {
                 last_run: None,
                 device: None,
                 devices: Vec::new(),
-                vaults: self.local_vault_views(&[])?,
+                vaults: self.local_vault_views(&[], &BTreeSet::new(), &BTreeMap::new())?,
                 conflicts: Vec::new(),
                 plugin_suggestions: Vec::new(),
                 warnings: Vec::new(),
@@ -498,6 +498,10 @@ impl SyncService {
             });
         }
         let rows = store::list_vaults(&connection)?;
+        let markers: BTreeSet<String> =
+            store::get_meta(&connection, store::META_VAULT_MARKERS)?.unwrap_or_default();
+        let holds: BTreeMap<String, DeletionHold> =
+            store::get_meta(&connection, store::META_DELETION_HOLDS)?.unwrap_or_default();
         let conflicts = store::list_conflicts(&connection)?
             .into_iter()
             .map(|conflict| {
@@ -539,14 +543,19 @@ impl SyncService {
                 name: config.device_name.clone(),
             }),
             devices,
-            vaults: self.local_vault_views(&rows)?,
+            vaults: self.local_vault_views(&rows, &markers, &holds)?,
             conflicts,
             plugin_suggestions,
             warnings,
         })
     }
 
-    fn local_vault_views(&self, rows: &[VaultRow]) -> AppResult<Vec<VaultView>> {
+    fn local_vault_views(
+        &self,
+        rows: &[VaultRow],
+        markers: &BTreeSet<String>,
+        holds: &BTreeMap<String, DeletionHold>,
+    ) -> AppResult<Vec<VaultView>> {
         let local = metadata::all_vaults(&db::open(&self.inner.app_db)?)?;
         let mut views = Vec::new();
         for vault in &local {
@@ -555,11 +564,24 @@ impl SyncService {
                 .find(|row| row.scope_id.as_deref() == Some(vault.scope_id.as_str()));
             let (state, message) = match row {
                 Some(row) if row.state == VaultState::Synced => {
+                    let hold = holds.get(&row.sync_id);
                     if row.paused {
                         (VaultViewState::PausedConflict, row.message.clone())
+                    } else if let Some(hold) = hold.filter(|hold| !hold.confirmed) {
+                        (
+                            VaultViewState::PausedDeletions,
+                            Some(engine::deletion_hold_message(hold)),
+                        )
                     } else {
-                        match scan::availability(Path::new(&vault.path)) {
-                            Availability::Ready => (VaultViewState::Synced, row.message.clone()),
+                        match scan::availability(
+                            Path::new(&vault.path),
+                            markers.contains(&row.sync_id),
+                        ) {
+                            Availability::Ready => (
+                                VaultViewState::Synced,
+                                hold.map(engine::deletion_hold_message)
+                                    .or_else(|| row.message.clone()),
+                            ),
                             Availability::Unavailable(message) => {
                                 (VaultViewState::Unavailable, Some(message))
                             }
@@ -1281,6 +1303,16 @@ impl SyncService {
                 let row = Self::vault_row(&connection, &sync_id)?;
                 self.inner.store.transaction(|transaction| {
                     store::delete_entries_with_prefix(transaction, &format!("v/{sync_id}/"))?;
+                    let mut markers: BTreeSet<String> =
+                        store::get_meta(transaction, store::META_VAULT_MARKERS)?
+                            .unwrap_or_default();
+                    markers.remove(&sync_id);
+                    store::set_meta(transaction, store::META_VAULT_MARKERS, &markers)?;
+                    let mut holds: BTreeMap<String, DeletionHold> =
+                        store::get_meta(transaction, store::META_DELETION_HOLDS)?
+                            .unwrap_or_default();
+                    holds.remove(&sync_id);
+                    store::set_meta(transaction, store::META_DELETION_HOLDS, &holds)?;
                     let mut watermarks: BTreeMap<String, i64> =
                         store::get_meta(transaction, store::META_HISTORY_WATERMARKS)?
                             .unwrap_or_default();
@@ -1302,6 +1334,26 @@ impl SyncService {
                             ..row
                         },
                     )
+                })?;
+            }
+            SyncVaultRequest::ConfirmDeletions { sync_id } => {
+                let row = Self::vault_row(&connection, &sync_id)?;
+                if row.state != VaultState::Synced {
+                    return Err(AppError::State(
+                        "That vault is not synced on this device".into(),
+                    ));
+                }
+                self.inner.store.transaction(|transaction| {
+                    let mut holds: BTreeMap<String, DeletionHold> =
+                        store::get_meta(transaction, store::META_DELETION_HOLDS)?
+                            .unwrap_or_default();
+                    let hold = holds.get_mut(&sync_id).ok_or_else(|| {
+                        AppError::NotFound(
+                            "No deletions in that vault are waiting for confirmation".into(),
+                        )
+                    })?;
+                    hold.confirmed = true;
+                    store::set_meta(transaction, store::META_DELETION_HOLDS, &holds)
                 })?;
             }
         }

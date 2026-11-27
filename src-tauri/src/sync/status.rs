@@ -120,6 +120,8 @@ pub(crate) enum VaultViewState {
     Skipped,
     PausedConflict,
     PausedEncryption,
+    /// A scan would delete most of the vault; waiting for the files or a confirmation.
+    PausedDeletions,
     Unavailable,
 }
 

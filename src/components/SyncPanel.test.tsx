@@ -293,6 +293,27 @@ describe("SyncPanel when configured", () => {
     expect(native.mapVault).toHaveBeenLastCalledWith(PLUGIN, { action: "stop", syncId: "sync-alpha" });
   });
 
+  it("applies held deletions in a vault only after confirmation", async () => {
+    const user = userEvent.setup();
+    const message = "22 of 27 synced files are missing from this folder. Sync paused this vault instead of deleting them on your other devices.";
+    native.status.mockResolvedValue(view({
+      vaults: [{ syncId: "sync-alpha", name: "Alpha notes", scopeId: "scope-alpha", path: "/synthetic/alpha", state: "paused-deletions", message }],
+    }));
+    render(<SyncPanel pluginId={PLUGIN} onClose={vi.fn()} />);
+    expect(await screen.findByText("Paused: most files are missing")).toBeInTheDocument();
+    expect(screen.getByText(message)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Apply deletions in Alpha notes" }));
+    const confirm = screen.getByRole("group", { name: "Apply deletions in Alpha notes?" });
+    expect(confirm).toHaveTextContent("vault trash");
+    await user.click(within(confirm).getByRole("button", { name: "Keep paused" }));
+    expect(native.mapVault).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Apply deletions in Alpha notes" }));
+    await user.click(within(screen.getByRole("group", { name: "Apply deletions in Alpha notes?" }))
+      .getByRole("button", { name: "Apply deletions" }));
+    expect(native.mapVault).toHaveBeenCalledWith(PLUGIN, { action: "confirm-deletions", syncId: "sync-alpha" });
+    expect(screen.getByRole("button", { name: "Stop syncing Alpha notes" })).toBeInTheDocument();
+  });
+
   it("removes another device only after confirmation and never offers to remove this device", async () => {
     const user = userEvent.setup();
     native.status.mockResolvedValue(view());

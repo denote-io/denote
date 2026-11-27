@@ -204,7 +204,9 @@ dropped, so an older client cannot delete what it does not understand.
 Each device keeps `sync/sync.sqlite3` in application data: its writer ID,
 counter, and committed generation, the last generation applied and the highest
 seen from every known writer with its device name, the vault mapping (remote
-vault sync ID to local vault scope ID), the local index, pending conflicts,
+vault sync ID to local vault scope ID), which vault folders held a `.denote`
+folder when scanned, deletions held back for confirmation, the local index,
+pending conflicts,
 plugin suggestions, the renderer's portable preferences, options, and a crash
 journal. Counter, index, and journal changes commit in one transaction.
 
@@ -238,7 +240,16 @@ One cycle:
    `vv[self] = ++counter`; removal becomes a tombstone. A vault whose root is
    missing or unreadable is skipped entirely and never produces tombstones;
    neither does a partially unreadable tree, a file that cannot be read, or one
-   over the size limit. A vault whose encryption manifest is in the
+   over the size limit. Denote creates `.denote/` (for its lock files) in every
+   vault it opens or writes, and the device records when a vault's folder holds
+   it; a folder that held it and no longer does is treated as unavailable,
+   because an unmounted drive or an offline cloud folder looks like an
+   existing, empty folder. A scan that would tombstone at least 20 synced files
+   of a vault and more than half of them holds the vault instead: nothing of it
+   is scanned, merged, applied, or published, and the panel shows it as
+   `paused-deletions` with the counts until the files return or the user
+   chooses **Apply deletions** (`confirm-deletions`), which lets the next scan
+   publish up to that many deletions. A vault whose encryption manifest is in the
    `encrypting` or `decrypting` phase is skipped until the transition
    finishes. New objects are encrypted and uploaded as soon as they are hashed,
    from the same bytes, so an upload never races a later edit. Revisions are
@@ -282,7 +293,12 @@ One cycle:
    replaced only once its conflict copy exists on disk; otherwise it is kept
    and retried, so a cancelled or failed cycle never loses either side. Files
    are written with a temporary file and rename, with case-insensitive and
-   Unicode collision checks and confined resolution under the vault root. Denote's existing external-change detection then
+   Unicode collision checks and confined resolution under the vault root. A
+   remote deletion never unlinks a file: it is moved into the vault's trash
+   through Denote's own trash operation, so it appears in **Trash** and can be
+   restored (which syncs it back as a new file). Denote's own synced files under
+   `.denote/`, which the trash cannot restore in place, are moved to
+   `.denote/trash/sync/<UTC timestamp>/<relative path>` instead. Denote's existing external-change detection then
    reloads clean tabs and reports a conflict for dirty ones instead of
    overwriting. Preferences and plugin data are applied through their normal
    validated import paths, after which affected plugin workers restart.
@@ -363,7 +379,7 @@ permission, and are registered in `src-tauri/src/lib.rs`:
 | `sync_unlock` | Unlock with the passphrase when it is not remembered |
 | `sync_run` / `sync_cancel` | Manual cycle and cancellation |
 | `sync_set_options` | Interval, paused flag, history and preferences toggles |
-| `sync_map_vault` | Map, merge, or skip a remote vault; enroll or stop a local vault |
+| `sync_map_vault` | Map, merge, or skip a remote vault; enroll or stop a local vault; confirm deletions held back in a vault |
 | `sync_resolve` | Resolve a pending encryption-manifest, plugin-setting, or plugin-state conflict |
 | `sync_put_preferences` | Renderer pushes the portable preferences allowlist |
 | `sync_retire_device` | Retire another writer |
@@ -423,7 +439,8 @@ type SyncVaultRequest =
   | { action: "map-existing"; syncId: string; scopeId: string }
   | { action: "skip"; syncId: string }
   | { action: "enroll"; scopeId: string }
-  | { action: "stop"; syncId: string };
+  | { action: "stop"; syncId: string }
+  | { action: "confirm-deletions"; syncId: string };  // publish held deletions
 
 interface SyncStatusView {
   state: "not-configured" | "needs-passphrase" | "idle" | "running" | "paused" | "error";
@@ -439,7 +456,7 @@ interface SyncStatusView {
              retired: boolean; isSelf: boolean }[];
   vaults: { syncId: string | null; name: string; scopeId: string | null; path: string | null;
             state: "synced" | "not-enrolled" | "pending-mapping" | "skipped" | "paused-conflict"
-                 | "paused-encryption" | "unavailable";
+                 | "paused-encryption" | "paused-deletions" | "unavailable";
             message: string | null }[];
   conflicts: { id: string; kind: "encryption-manifest" | "plugin-setting" | "plugin-state";
                vaultSyncId: string | null; pluginId: string | null; key: string | null;

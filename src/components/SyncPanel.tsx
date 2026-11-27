@@ -61,6 +61,7 @@ const VAULT_STATE_LABELS: Record<SyncVaultState, string> = {
   skipped: "Skipped on this device",
   "paused-conflict": "Paused: encryption settings conflict",
   "paused-encryption": "Paused while encryption changes",
+  "paused-deletions": "Paused: most files are missing",
   unavailable: "Folder unavailable",
 };
 
@@ -548,6 +549,7 @@ function SyncVaults({ vaults, disabled, onRequest, onChooseNewFolder }: {
   onChooseNewFolder: (vault: SyncVault) => void;
 }) {
   const [stopping, setStopping] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
   const [targets, setTargets] = useState<Record<string, string>>({});
   const localCandidates = vaults.filter((vault) => vault.scopeId && !vault.syncId && vault.state === "not-enrolled");
   return <SyncSection title="Vaults">
@@ -556,7 +558,7 @@ function SyncVaults({ vaults, disabled, onRequest, onChooseNewFolder }: {
       const key = vault.syncId ?? vault.scopeId ?? vault.name;
       const remoteOnly = (vault.state === "pending-mapping" || vault.state === "skipped") && vault.syncId;
       const stoppable = vault.syncId && vault.scopeId &&
-        ["synced", "paused-conflict", "paused-encryption", "unavailable"].includes(vault.state);
+        ["synced", "paused-conflict", "paused-encryption", "paused-deletions", "unavailable"].includes(vault.state);
       const target = targets[key] ?? "";
       return <li key={key} className="sync-panel__item">
         <strong>{vault.name}</strong>
@@ -587,6 +589,17 @@ function SyncVaults({ vaults, disabled, onRequest, onChooseNewFolder }: {
               onClick={() => onRequest({ action: "skip", syncId: vault.syncId as string }, `${vault.name} is skipped on this device.`)}>
               Skip on this device</button> : null}
           </> : null}
+          {vault.state === "paused-deletions" && vault.syncId ? deleting === key ?
+            <span role="group" aria-label={`Apply deletions in ${vault.name}?`} className="sync-panel__confirm">
+              <span>The missing files are deleted on every device that syncs {vault.name}. Each device keeps them in its vault trash.</span>
+              <button type="button" className="secondary-button" onClick={() => setDeleting(null)}>Keep paused</button>
+              <button type="button" className="danger-button" disabled={disabled} onClick={() => {
+                setDeleting(null);
+                onRequest({ action: "confirm-deletions", syncId: vault.syncId as string },
+                  `The missing files of ${vault.name} are deleted on the next sync.`);
+              }}>Apply deletions</button>
+            </span> : <button type="button" className="secondary-button" disabled={disabled}
+              aria-label={`Apply deletions in ${vault.name}`} onClick={() => setDeleting(key)}>Apply deletions…</button> : null}
           {stoppable ? stopping === key ? <span role="group" aria-label={`Stop syncing ${vault.name}?`} className="sync-panel__confirm">
             <span>Local files stay. This device stops publishing changes to {vault.name}; other devices keep their copies.</span>
             <button type="button" className="secondary-button" onClick={() => setStopping(null)}>Keep syncing</button>

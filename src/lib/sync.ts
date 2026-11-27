@@ -37,13 +37,14 @@ export type SyncVaultRequest =
   | { action: "map-existing"; syncId: string; scopeId: string }
   | { action: "skip"; syncId: string }
   | { action: "enroll"; scopeId: string }
-  | { action: "stop"; syncId: string };
+  | { action: "stop"; syncId: string }
+  | { action: "confirm-deletions"; syncId: string };
 
 export type SyncState = "not-configured" | "needs-passphrase" | "idle" | "running" | "paused" | "error";
 export type SyncPhase = "refresh" | "scan" | "merge" | "download" | "apply" | "upload" | "publish";
 export type SyncVaultState =
   | "synced" | "not-enrolled" | "pending-mapping" | "skipped" | "paused-conflict"
-  | "paused-encryption" | "unavailable";
+  | "paused-encryption" | "paused-deletions" | "unavailable";
 export type SyncConflictKind = "encryption-manifest" | "plugin-setting" | "plugin-state";
 
 export interface SyncDevice {

@@ -19,6 +19,23 @@ pub(crate) const META_LAST_RUN: &str = "last-run";
 pub(crate) const META_HISTORY_WATERMARKS: &str = "history-watermarks";
 /// Set when the index changed outside a cycle and must be published.
 pub(crate) const META_PUBLISH_PENDING: &str = "publish-pending";
+/// Sync IDs of vaults whose folder held Denote's `.denote` folder when scanned.
+pub(crate) const META_VAULT_MARKERS: &str = "vault-markers";
+/// Deletions held back per vault sync ID; see [`DeletionHold`].
+pub(crate) const META_DELETION_HOLDS: &str = "deletion-holds";
+
+/// A scan that would delete most of a vault publishes nothing for it until the
+/// files come back or the user confirms the deletions.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DeletionHold {
+    /// Synced files missing from the folder.
+    pub missing: usize,
+    /// Synced files the folder held before.
+    pub observed: usize,
+    /// The user chose to apply up to `missing` deletions on the next scan.
+    pub confirmed: bool,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Fingerprint {

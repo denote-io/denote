@@ -35,7 +35,12 @@ pub(crate) enum Change<'a> {
         mode: u32,
         modified_ms: i64,
     },
-    Remove,
+    /// Moves the file into the vault's trash with `trash`, which receives its
+    /// path relative to the vault root as it exists on disk. A synced
+    /// deletion never unlinks a file.
+    Remove {
+        trash: &'a dyn Fn(&Path) -> AppResult<()>,
+    },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -79,11 +84,11 @@ pub(crate) fn apply_file(
         )));
     }
     match change {
-        Change::Remove => {
+        Change::Remove { trash } => {
             if matches!(expected, Expected::Absent) {
                 return Ok(Outcome::Applied(None));
             }
-            fs::remove_file(&target)?;
+            trash(&relative)?;
             remove_empty_parents(root, &relative, cache);
             Ok(Outcome::Applied(None))
         }
@@ -408,18 +413,29 @@ mod tests {
         );
 
         let expected = expected_for(root, "notes/deep/a.md");
+        let trashed = std::cell::RefCell::new(Vec::new());
+        let trash = |relative: &Path| -> AppResult<()> {
+            let kept = staging.path().join("trashed");
+            fs::rename(root.join(relative), &kept)?;
+            trashed.borrow_mut().push((relative.to_path_buf(), kept));
+            Ok(())
+        };
         assert_eq!(
             apply_file(
                 root,
                 "notes/deep/a.md",
                 &expected,
-                Change::Remove,
+                Change::Remove { trash: &trash },
                 &keys,
                 &mut DirectoryCache::default()
             )
             .unwrap(),
             Outcome::Applied(None)
         );
+        let trashed = trashed.into_inner();
+        assert_eq!(trashed.len(), 1, "a removal goes through the trash");
+        assert_eq!(trashed[0].0, Path::new("notes/deep/a.md"));
+        assert_eq!(fs::read(&trashed[0].1).unwrap(), b"second remote");
         assert!(!root.join("notes").exists(), "emptied folders are removed");
     }
 

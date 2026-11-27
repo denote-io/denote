@@ -1098,7 +1098,47 @@ pub fn move_entry(
 pub fn trash_entry(db_path: &Path, vault_path: &str, relative_path: &str) -> AppResult<TrashItem> {
     let root = canonical_vault(vault_path)?;
     let _vault_lock = acquire_vault_lock(&root, true)?;
-    let source = existing_entry(&root, relative_path)?;
+    trash_entry_locked(db_path, &root, relative_path)
+}
+
+/// Moves a file that a synced deletion removed into the vault's trash, where
+/// it can be restored like any trashed file. The caller holds the vault
+/// control lock. Denote's own files under `.denote/`, which the trash cannot
+/// restore to their place, are kept under `.denote/trash/sync/<timestamp>/`
+/// with their relative path instead.
+pub(crate) fn trash_synced_removal(
+    db_path: &Path,
+    vault_path: &str,
+    relative_path: &str,
+) -> AppResult<()> {
+    let root = canonical_vault(vault_path)?;
+    if !is_internal_relative_path(relative_path) {
+        return trash_entry_locked(db_path, &root, relative_path).map(|_| ());
+    }
+    let source = internal_entry(&root, relative_path)?;
+    let now = jiff::Timestamp::now();
+    let stamp = format!(
+        "{}.{:03}Z",
+        now.strftime("%Y%m%dT%H%M%S"),
+        now.subsec_millisecond()
+    );
+    let destination = root
+        .join(".denote")
+        .join("trash")
+        .join("sync")
+        .join(stamp)
+        .join(normalized_relative(relative_path, true)?);
+    ensure_no_symlinks(&root, &destination, true)?;
+    let parent = destination
+        .parent()
+        .ok_or_else(|| AppError::InvalidPath(relative_path.to_string()))?;
+    fs::create_dir_all(parent)?;
+    rename_no_replace(&source, &destination)?;
+    Ok(())
+}
+
+fn trash_entry_locked(db_path: &Path, root: &Path, relative_path: &str) -> AppResult<TrashItem> {
+    let source = existing_entry(root, relative_path)?;
     let is_directory = source.is_dir();
     let name = source
         .file_name()
@@ -1108,12 +1148,12 @@ pub fn trash_entry(db_path: &Path, vault_path: &str, relative_path: &str) -> App
         .join(".denote")
         .join("trash")
         .join(Uuid::new_v4().to_string());
-    ensure_no_symlinks(&root, &trash_directory, true)?;
+    ensure_no_symlinks(root, &trash_directory, true)?;
     fs::create_dir_all(&trash_directory)?;
     let destination = trash_directory.join(name);
     let mut connection = db::open(db_path)?;
-    let (vault_id, _) = ensure_vault(&connection, &root)?;
-    let trash_relative = relative_internal_string(&root, &destination)?;
+    let (vault_id, _) = ensure_vault(&connection, root)?;
+    let trash_relative = relative_internal_string(root, &destination)?;
     let operation_id = db::begin_file_operation(
         &connection,
         vault_id,

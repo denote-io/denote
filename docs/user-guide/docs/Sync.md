@@ -126,6 +126,24 @@ own.
 **Options** also choose whether revision history, preferences, and plugin
 settings and data are synced. These choices stay on this device.
 
+### Deleted files and missing folders
+
+A file deleted on another device is moved to this device's **Trash**, never
+erased, so you can restore it from **Trash** (restoring syncs it back). Denote's
+own files inside a vault's `.denote` folder that another device deleted are kept
+in `.denote/trash/sync/` instead.
+
+If a vault's folder suddenly looks empty, for example because its drive is
+unplugged or a cloud folder is offline, its `.denote` folder is gone too and the
+vault shows **Folder unavailable** until the files are back. Nothing is deleted
+on your other devices meanwhile.
+
+When most of a vault's files disappear at once (at least 20 files and more than
+half of the vault), sync pauses that vault and shows **Paused: most files are
+missing** with the numbers. Restore the files to resume, or choose **Apply
+deletions…** and confirm if you really removed them; the next sync deletes them
+on every device, each of which keeps them in its Trash.
+
 ## What is synced
 
 Synced: the files of enrolled vaults (encrypted vaults stay encrypted), vault
@@ -134,7 +152,7 @@ roots, revision history, theme, editor display, default Markdown view, dotfile
 visibility, activity-rail layout, the dictation shortcut, portable plugin
 settings and plugin data, and which plugins are enabled on other devices.
 
-Not synced: `.git` folders, Denote Trash, locks and temporary files, symbolic
+Not synced: `.git` folders, the contents of Denote Trash, locks and temporary files, symbolic
 links, panel widths, approved link domains and remote-image consent, the update
 channel and automatic plugin updates, plugin packages and permission approvals,
 plugin settings for executables, paths, authentication, signing, or automation,

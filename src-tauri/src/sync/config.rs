@@ -140,6 +140,9 @@ pub(crate) enum SyncVaultRequest {
     Enroll { scope_id: String },
     #[serde(rename_all = "camelCase")]
     Stop { sync_id: String },
+    /// Publishes deletions a scan held back because they removed most of the vault.
+    #[serde(rename_all = "camelCase")]
+    ConfirmDeletions { sync_id: String },
 }
 
 /// Non-secret, persisted backend identity.

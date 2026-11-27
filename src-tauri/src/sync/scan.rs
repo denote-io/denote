@@ -51,8 +51,18 @@ pub(crate) enum Availability {
     Transition,
 }
 
+/// Whether `root` holds Denote's `.denote` folder. Denote creates it, with its
+/// lock files, in every vault it opens or writes.
+pub(crate) fn has_marker(root: &Path) -> bool {
+    fs::symlink_metadata(root.join(".denote"))
+        .is_ok_and(|metadata| metadata.is_dir() && !metadata.file_type().is_symlink())
+}
+
 /// A missing or unreadable root, or a vault mid-encryption, is skipped entirely.
-pub(crate) fn availability(root: &Path) -> Availability {
+/// `marked` says the folder held Denote's `.denote` folder before. When that
+/// is gone the folder counts as unavailable: an unmounted drive or an offline
+/// cloud folder looks like an existing, empty folder.
+pub(crate) fn availability(root: &Path, marked: bool) -> Availability {
     match fs::symlink_metadata(root) {
         Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {}
         Ok(_) => {
@@ -65,6 +75,12 @@ pub(crate) fn availability(root: &Path) -> Availability {
     }
     if fs::read_dir(root).is_err() {
         return Availability::Unavailable("The vault folder is unreadable.".into());
+    }
+    if marked && !has_marker(root) {
+        return Availability::Unavailable(
+            "The vault folder looks empty: its .denote folder is missing, as on a disconnected drive or an offline cloud folder. Sync resumes when the files are back. If you emptied the vault on purpose, open it in Denote first."
+                .into(),
+        );
     }
     match load_manifest(root) {
         Ok(Some(manifest))
@@ -454,10 +470,10 @@ mod tests {
     fn missing_roots_and_encryption_transitions_are_skipped() {
         let directory = tempfile::tempdir().unwrap();
         assert!(matches!(
-            availability(&directory.path().join("missing")),
+            availability(&directory.path().join("missing"), false),
             Availability::Unavailable(_)
         ));
-        assert_eq!(availability(directory.path()), Availability::Ready);
+        assert_eq!(availability(directory.path(), false), Availability::Ready);
         fs::create_dir(directory.path().join(".denote")).unwrap();
         fs::write(
             directory.path().join(".denote/encryption.json"),
@@ -465,8 +481,22 @@ mod tests {
         )
         .unwrap();
         assert!(matches!(
-            availability(directory.path()),
+            availability(directory.path(), false),
             Availability::Unavailable(_)
         ));
+    }
+
+    #[test]
+    fn a_vault_folder_that_lost_its_denote_folder_is_unavailable() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        assert_eq!(availability(root, false), Availability::Ready);
+        assert!(matches!(
+            availability(root, true),
+            Availability::Unavailable(message) if message.contains(".denote")
+        ));
+        fs::create_dir_all(root.join(".denote/locks")).unwrap();
+        assert!(has_marker(root));
+        assert_eq!(availability(root, true), Availability::Ready);
     }
 }

@@ -620,3 +620,103 @@ fn locking_or_switching_vaults_cancels_sync_before_waiting_for_the_vault() {
     );
     drop(operation);
 }
+
+#[test]
+fn deleting_most_of_a_vault_waits_for_confirmation() {
+    let storage = tempfile::tempdir().unwrap();
+    let laptop = Device::new();
+    let desk = Device::new();
+    laptop
+        .setup(SetupMode::Create, storage.path(), PASSPHRASE, true)
+        .unwrap();
+    laptop
+        .service
+        .map_vault(
+            PLUGIN,
+            SyncVaultRequest::Enroll {
+                scope_id: laptop.scope_id.clone(),
+            },
+        )
+        .unwrap();
+    fs::create_dir_all(laptop.vault_root.join(".denote/locks")).unwrap();
+    for index in 0..30 {
+        fs::write(
+            laptop.vault_root.join(format!("n{index:02}.md")),
+            format!("note {index}"),
+        )
+        .unwrap();
+    }
+    let sync_id = laptop.run().vaults[0].sync_id.clone().unwrap();
+    desk.setup(SetupMode::Join, storage.path(), PASSPHRASE, true)
+        .unwrap();
+    desk.run();
+    desk.service
+        .map_vault(
+            PLUGIN,
+            SyncVaultRequest::MapExisting {
+                sync_id: sync_id.clone(),
+                scope_id: desk.scope_id.clone(),
+            },
+        )
+        .unwrap();
+    desk.run();
+    assert!(desk.vault_root.join("n29.md").is_file());
+    assert!(
+        laptop
+            .service
+            .map_vault(
+                PLUGIN,
+                SyncVaultRequest::ConfirmDeletions {
+                    sync_id: sync_id.clone()
+                }
+            )
+            .is_err(),
+        "nothing is waiting for confirmation"
+    );
+
+    // A small deletion is ordinary editing.
+    for index in 0..3 {
+        fs::remove_file(laptop.vault_root.join(format!("n{index:02}.md"))).unwrap();
+    }
+    laptop.run();
+    desk.run();
+    assert!(!desk.vault_root.join("n00.md").exists());
+
+    // Most of the vault gone at once is held back.
+    for index in 3..25 {
+        fs::remove_file(laptop.vault_root.join(format!("n{index:02}.md"))).unwrap();
+    }
+    let status = laptop.run();
+    let vault = &status.vaults[0];
+    assert_eq!(vault.state, VaultViewState::PausedDeletions);
+    assert!(
+        vault
+            .message
+            .as_deref()
+            .is_some_and(|message| message.contains("22 of 27")),
+        "{vault:?}"
+    );
+    desk.run();
+    assert!(desk.vault_root.join("n03.md").is_file());
+    assert_eq!(
+        laptop.run().vaults[0].state,
+        VaultViewState::PausedDeletions
+    );
+
+    let status = laptop
+        .service
+        .map_vault(
+            PLUGIN,
+            SyncVaultRequest::ConfirmDeletions {
+                sync_id: sync_id.clone(),
+            },
+        )
+        .unwrap();
+    assert_eq!(status.vaults[0].state, VaultViewState::Synced);
+    let status = laptop.run();
+    assert_eq!(status.vaults[0].state, VaultViewState::Synced);
+    assert_eq!(status.vaults[0].message, None);
+    desk.run();
+    assert!(!desk.vault_root.join("n03.md").exists());
+    assert!(desk.vault_root.join("n29.md").is_file());
+}

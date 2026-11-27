@@ -29,8 +29,8 @@ use super::{
     plugin_data::{PluginDataSource, portable_setting},
     scan::{self, Availability, cancelled, read_file},
     store::{
-        self, ConflictKind, ConflictRow, Fingerprint, Identity, IndexRow, Journal, Observed, Store,
-        VaultRow, VaultState, WriterRow,
+        self, ConflictKind, ConflictRow, DeletionHold, Fingerprint, Identity, IndexRow, Journal,
+        Observed, Store, VaultRow, VaultState, WriterRow,
     },
 };
 use crate::{
@@ -41,6 +41,9 @@ use crate::{
 /// Generations tried per writer before giving up on it for this cycle.
 const MAX_FALLBACK_GENERATIONS: usize = 8;
 const MAX_LISTED_OBJECTS: usize = 5_000_000;
+/// A scan that would delete at least this many synced files of a vault, and
+/// more than half of them, holds the deletions back for confirmation.
+const MASS_DELETION_MIN_FILES: usize = 20;
 /// Most files applied under one acquisition of the vault lock.
 const APPLY_BATCH_FILES: usize = 16;
 /// A batch releases the vault lock once it has held it this long.
@@ -254,6 +257,19 @@ impl Observer<'_> {
         self.changes.insert(key.to_string(), entry);
     }
 
+    /// How many keys under `prefix` were last observed present.
+    fn present(&self, prefix: &str) -> usize {
+        self.index
+            .range(prefix.to_string()..)
+            .take_while(|(key, _)| key.starts_with(prefix))
+            .filter(|(_, row)| {
+                row.observed
+                    .as_ref()
+                    .is_some_and(|observed| !observed.value.is_tombstone())
+            })
+            .count()
+    }
+
     /// Keys under `prefix` that were present and are now gone.
     fn removed(&self, prefix: &str, still: &dyn Fn(&str) -> bool) -> Vec<String> {
         self.index
@@ -461,6 +477,10 @@ impl Engine<'_> {
             store::get_meta(&connection, store::META_HISTORY_WATERMARKS)?.unwrap_or_default();
         let publish_pending: bool =
             store::get_meta(&connection, store::META_PUBLISH_PENDING)?.unwrap_or(false);
+        let mut markers: BTreeSet<String> =
+            store::get_meta(&connection, store::META_VAULT_MARKERS)?.unwrap_or_default();
+        let mut holds: BTreeMap<String, DeletionHold> =
+            store::get_meta(&connection, store::META_DELETION_HOLDS)?.unwrap_or_default();
         drop(connection);
 
         // 1. Refresh.
@@ -704,7 +724,7 @@ impl Engine<'_> {
                 continue;
             };
             let root = PathBuf::from(&db_vault.path);
-            match scan::availability(&root) {
+            match scan::availability(&root, markers.contains(&row.sync_id)) {
                 Availability::Ready => {
                     row.message = None;
                     row.name = db_vault.name.clone();
@@ -748,6 +768,39 @@ impl Engine<'_> {
                     continue;
                 }
             };
+            if scan::has_marker(&vault.root) {
+                markers.insert(sync_id.clone());
+            }
+            let prefix = format!("v/{sync_id}/f/");
+            let removed = if walk.complete {
+                let still = |key: &str| {
+                    key.strip_prefix(&prefix).is_some_and(|path| {
+                        walk.files.contains_key(path) || walk.held.contains(path)
+                    })
+                };
+                observer.removed(&prefix, &still)
+            } else {
+                Vec::new()
+            };
+            match deletion_hold(holds.get(sync_id), removed.len(), observer.present(&prefix)) {
+                Some(hold) => {
+                    // Nothing of this vault is scanned, merged, applied, or
+                    // published until the files return or the user confirms.
+                    let message = deletion_hold_message(&hold);
+                    report
+                        .warnings
+                        .push(format!("{}: {message}", vault.db.name));
+                    if let Some(row) = vault_rows.get_mut(sync_id) {
+                        row.message = Some(message);
+                    }
+                    holds.insert(sync_id.clone(), hold);
+                    unscannable.push(sync_id.clone());
+                    continue;
+                }
+                None => {
+                    holds.remove(sync_id);
+                }
+            }
             report.skipped.extend(
                 walk.skipped
                     .iter()
@@ -789,16 +842,8 @@ impl Engine<'_> {
                     Some(file.fingerprint),
                 );
             }
-            if walk.complete {
-                let prefix = format!("v/{sync_id}/f/");
-                let still = |key: &str| {
-                    key.strip_prefix(&prefix).is_some_and(|path| {
-                        walk.files.contains_key(path) || walk.held.contains(path)
-                    })
-                };
-                for key in observer.removed(&prefix, &still) {
-                    observer.observe(&key, None, now_ms(), None);
-                }
+            for key in removed {
+                observer.observe(&key, None, now_ms(), None);
             }
 
             let observed = metadata::observe(&app, &vault.db, sync_id)?;
@@ -1182,6 +1227,16 @@ impl Engine<'_> {
                     });
                 preserving.into_iter().chain(rest).cloned().collect()
             };
+            // Synced deletions go to the vault's trash, never straight to unlink.
+            let trash = |relative: &Path| -> AppResult<()> {
+                let relative = relative
+                    .to_str()
+                    .ok_or_else(|| {
+                        AppError::InvalidPath("A synced file name is not valid Unicode".into())
+                    })?
+                    .replace('\\', "/");
+                crate::vault::trash_synced_removal(self.app_db, &vault.db.path, &relative)
+            };
             let mut applied_here = 0usize;
             let mut next = 0usize;
             let mut result = Ok(());
@@ -1257,7 +1312,7 @@ impl Engine<'_> {
                                     modified_ms: row.entry.modified_at,
                                 }
                             }
-                            EntryValue::Tombstone => Change::Remove,
+                            EntryValue::Tombstone => Change::Remove { trash: &trash },
                             EntryValue::Inline { .. } => {
                                 report.skipped.push(format!(
                                     "{}: {path}: invalid synced value",
@@ -1547,6 +1602,8 @@ impl Engine<'_> {
             store::write_index_changes(transaction, &before, &index)?;
             store::set_meta(transaction, store::META_IDENTITY, &identity)?;
             store::set_meta(transaction, store::META_HISTORY_WATERMARKS, &watermarks)?;
+            store::set_meta(transaction, store::META_VAULT_MARKERS, &markers)?;
+            store::set_meta(transaction, store::META_DELETION_HOLDS, &holds)?;
             if report.published.is_some() {
                 store::set_meta(transaction, store::META_PUBLISH_PENDING, &false)?;
             }
@@ -1600,6 +1657,41 @@ impl Engine<'_> {
         uploader.ensure(id, &bytes)?;
         Ok(true)
     }
+}
+
+/// The deletions a scan holds back. Most of a vault's synced files gone at
+/// once looks like a disconnected drive or an emptied folder, not like
+/// editing, so they are published only once the user confirms them.
+fn deletion_hold(
+    previous: Option<&DeletionHold>,
+    missing: usize,
+    observed: usize,
+) -> Option<DeletionHold> {
+    if missing < MASS_DELETION_MIN_FILES || missing.saturating_mul(2) <= observed {
+        return None;
+    }
+    if previous.is_some_and(|hold| hold.confirmed && missing <= hold.missing) {
+        return None;
+    }
+    Some(DeletionHold {
+        missing,
+        observed,
+        confirmed: false,
+    })
+}
+
+/// Explains a held deletion in the status view.
+pub(crate) fn deletion_hold_message(hold: &DeletionHold) -> String {
+    if hold.confirmed {
+        return format!(
+            "Deleting {} file(s) on every device was confirmed; the next sync applies it.",
+            hold.missing
+        );
+    }
+    format!(
+        "{} of {} synced files are missing from this folder. Sync paused this vault instead of deleting them on your other devices. Restore the files, or choose Apply deletions to delete them everywhere.",
+        hold.missing, hold.observed
+    )
 }
 
 /// The content a vault file had when it was last observed on disk.
