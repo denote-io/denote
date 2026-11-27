@@ -1414,10 +1414,7 @@ changing the protocol, scope, commands, or payloads; the renderer and the Rust
 host must change together. The plugin worker only registers
 `denote.sync.tool`, so plugin releases rarely need host changes.
 
-The `sync` permission first ships in SDK 0.2.0. Until that tag is published,
-`package.json` pins `@denote/plugin-sdk` to the reviewed commit
-`564645ef77c2844962af5025732c630dfff6a40d`; replace the pin with the tag when it
-exists. Renderer pieces:
+The `sync` permission first ships in SDK 0.2.0. Renderer pieces:
 
 - `src/lib/sync.ts` and `src/lib/api.ts`: payload types, validators, and command
   and event wrappers that must match [Command payloads](sync.md#command-payloads);
