@@ -243,6 +243,12 @@ pub async fn sync_retire_device(
     .await
 }
 
+/// Rejoins sync after another device removed this one.
+#[tauri::command]
+pub async fn sync_rejoin(app: AppHandle, plugin_id: String) -> AppResult<SyncStatusView> {
+    with_service(app, move |service| service.rejoin(&plugin_id)).await
+}
+
 #[tauri::command]
 pub async fn sync_change_passphrase(
     app: AppHandle,

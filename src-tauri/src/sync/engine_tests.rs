@@ -1254,3 +1254,79 @@ fn remote_deletions_move_files_into_the_vault_trash() {
     assert_eq!(tree(&desk_root), tree(&laptop_root));
     assert_eq!(desk.sync(&backend, &keys).published, None);
 }
+
+#[test]
+fn a_removed_device_stops_syncing_until_it_rejoins() {
+    let backend = MemoryBackend::default();
+    let keys = repository(&backend);
+    let laptop = Device::new("Laptop", &keys);
+    let desk = Device::new("Desk", &keys);
+    let (laptop_root, laptop_scope) = laptop.add_vault("Notes");
+    let (desk_root, desk_scope) = desk.add_vault("Notes");
+    laptop.map(VAULT, &laptop_scope);
+    desk.map(VAULT, &desk_scope);
+    write(&laptop_root, "a.md", "alpha");
+    laptop.sync(&backend, &keys);
+    desk.sync(&backend, &keys);
+
+    let removed = desk.identity().writer_id;
+    let record = serde_json::to_vec(&json!({
+        "writer": removed,
+        "retiredBy": laptop.identity().writer_id,
+        "retiredAt": db::now(),
+    }))
+    .unwrap();
+    backend
+        .put(
+            &retired_key(&removed),
+            &keys.seal_retirement(&removed, &record).unwrap(),
+            PutMode::Overwrite,
+        )
+        .unwrap();
+    write(&desk_root, "a.md", "edited on the removed desk");
+    write(&laptop_root, "b.md", "beta");
+    laptop.sync(&backend, &keys);
+
+    for _ in 0..2 {
+        let (result, report) = desk.try_sync(&backend, &keys, false);
+        let error = result.unwrap_err().to_string();
+        assert!(
+            error.contains("This device was removed from sync. Rejoin to continue."),
+            "{error}"
+        );
+        assert_eq!(report.published, None);
+        assert!(!report.rotated);
+    }
+    assert_eq!(
+        desk.identity().writer_id,
+        removed,
+        "no automatic re-enrollment"
+    );
+    assert!(!desk_root.join("b.md").exists(), "nothing is applied");
+    let flagged: Option<bool> = store::get_meta(
+        &desk.store.connection().unwrap(),
+        store::META_DEVICE_REMOVED,
+    )
+    .unwrap();
+    assert_eq!(flagged, Some(true));
+    assert!(
+        rejoin(&laptop.store).is_err(),
+        "only a removed device rejoins"
+    );
+
+    rejoin(&desk.store).unwrap();
+    let rejoined = desk.identity().writer_id;
+    assert_ne!(rejoined, removed);
+    let report = desk.sync(&backend, &keys);
+    assert_eq!(report.published, Some(1));
+    laptop.sync(&backend, &keys);
+    desk.sync(&backend, &keys);
+    let files = tree(&laptop_root);
+    assert_eq!(files, tree(&desk_root));
+    let contents: Vec<&[u8]> = files.values().map(Vec::as_slice).collect();
+    assert!(
+        contents.contains(&&b"edited on the removed desk"[..]),
+        "{files:?}"
+    );
+    assert!(contents.contains(&&b"beta"[..]), "{files:?}");
+}

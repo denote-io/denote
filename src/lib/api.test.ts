@@ -127,6 +127,7 @@ describe("sync API", () => {
     await api.syncResolve(pluginId, "conflict-1", "remote");
     await api.syncPutPreferences(pluginId, { "denote-theme": "light", "denote-show-dotfiles": null });
     await api.syncRetireDevice(pluginId, "b".repeat(32));
+    await api.syncRejoin(pluginId);
     await api.syncChangePassphrase(pluginId, "synthetic old", "synthetic new");
     await api.syncDisconnect(pluginId);
     await api.syncChooseFolder(pluginId, "vault");
@@ -143,6 +144,7 @@ describe("sync API", () => {
       ["sync_resolve", { pluginId, conflictId: "conflict-1", choice: "remote" }],
       ["sync_put_preferences", { pluginId, preferences: { "denote-theme": "light", "denote-show-dotfiles": null } }],
       ["sync_retire_device", { pluginId, writerId: "b".repeat(32) }],
+      ["sync_rejoin", { pluginId }],
       ["sync_change_passphrase", { pluginId, current: "synthetic old", next: "synthetic new" }],
       ["sync_disconnect", { pluginId }],
       ["sync_choose_folder", { pluginId, purpose: "vault" }],

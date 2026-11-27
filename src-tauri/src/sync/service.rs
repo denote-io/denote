@@ -452,10 +452,14 @@ impl SyncService {
         };
         let last: Option<LastRunRecord> = store::get_meta(&connection, store::META_LAST_RUN)?;
         let identity: Option<Identity> = store::get_meta(&connection, store::META_IDENTITY)?;
+        let removed: bool =
+            store::get_meta(&connection, store::META_DEVICE_REMOVED)?.unwrap_or(false);
         let state = if running {
             SyncState::Running
         } else if !unlocked {
             SyncState::NeedsPassphrase
+        } else if removed {
+            SyncState::Error
         } else if config.options.paused {
             SyncState::Paused
         } else if last.as_ref().is_some_and(|last| !last.run.ok) {
@@ -541,6 +545,7 @@ impl SyncService {
             device: identity.map(|identity| DeviceView {
                 writer_id: identity.writer_id,
                 name: config.device_name.clone(),
+                removed,
             }),
             devices,
             vaults: self.local_vault_views(&rows, &markers, &holds)?,
@@ -961,6 +966,17 @@ impl SyncService {
         operation.check()?;
         if scheduled && (current.options.paused || current.options.interval_minutes == 0) {
             return Ok(());
+        }
+        let removed: bool =
+            store::get_meta(&self.inner.store.connection()?, store::META_DEVICE_REMOVED)?
+                .unwrap_or(false);
+        if removed {
+            // A removed device never talks to storage until it rejoins.
+            return if scheduled {
+                Ok(())
+            } else {
+                Err(engine::device_removed())
+            };
         }
         {
             let mut runtime = self.runtime()?;
@@ -1461,6 +1477,21 @@ impl SyncService {
         backend.flush()?;
         writer.retired = true;
         store::upsert_writer(&connection, &writer)?;
+        let status = self.build_status()?;
+        self.environment().emit_status(&status);
+        Ok(status)
+    }
+
+    /// Rejoins sync after another device removed this one, under a new device
+    /// identity whose local state is compared as concurrent with every other
+    /// device, so nothing is lost.
+    pub(crate) fn rejoin(&self, plugin_id: &str) -> AppResult<SyncStatusView> {
+        self.configured(plugin_id)?;
+        {
+            let _cycle = self.cycle_guard()?;
+            engine::rejoin(&self.inner.store)?;
+        }
+        self.wake(true, false);
         let status = self.build_status()?;
         self.environment().emit_status(&status);
         Ok(status)

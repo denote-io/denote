@@ -172,6 +172,10 @@ export function SyncPanel({ pluginId, onClose, onOpenPluginSettings }: SyncPanel
     body = <>
       <SyncOverview status={status} running={running} busy={busy}
         onSyncNow={syncNow}
+        onRejoin={() => void perform(async () => {
+          accept(await api.syncRejoin(pluginId));
+          return "This device rejoined sync. The next sync compares its files with your other devices.";
+        })}
         onCancel={() => void perform(async () => { await api.syncCancel(pluginId); return "Sync stops after the current file."; })}
         onPause={() => void perform(async () => {
           const paused = !status.options.paused;
@@ -471,12 +475,13 @@ function SyncUnlock({ pluginId, busy, remember, perform, accept }: {
   </form>;
 }
 
-function SyncOverview({ status, running, busy, onSyncNow, onCancel, onPause }: {
+function SyncOverview({ status, running, busy, onSyncNow, onRejoin, onCancel, onPause }: {
   status: SyncStatusView; running: boolean; busy: boolean;
-  onSyncNow: () => void; onCancel: () => void; onPause: () => void;
+  onSyncNow: () => void; onRejoin: () => void; onCancel: () => void; onPause: () => void;
 }) {
   const progress = status.progress;
   const lastRun = status.lastRun;
+  const removed = status.device?.removed === true;
   return <SyncSection title="Status">
     <dl className="sync-panel__facts">
       <div><dt>State</dt><dd>{running ? STATE_LABELS.running : STATE_LABELS[status.state]}</dd></div>
@@ -497,9 +502,17 @@ function SyncOverview({ status, running, busy, onSyncNow, onCancel, onPause }: {
       </p>
       {lastRun.skipped.length ? <p className="authoring-muted">Skipped: {lastRun.skipped.join(", ")}</p> : null}
     </div> : <p className="authoring-muted">No sync has finished on this device yet.</p>}
+    {removed ? <div className="sync-panel__removed">
+      <p className="authoring-error">This device was removed from sync. Rejoin to continue.</p>
+      <p className="authoring-muted">
+        Rejoining gives this device a new identity. Its files are compared with your other devices, and versions that
+        differ are kept as conflict copies, so nothing is lost.
+      </p>
+    </div> : null}
     <div className="authoring-actions">
       {running ? <button type="button" className="secondary-button" disabled={busy} onClick={onCancel}>Cancel sync</button> :
-        <button type="button" className="primary-button" disabled={busy} onClick={onSyncNow}>Sync now</button>}
+        removed ? <button type="button" className="primary-button" disabled={busy} onClick={onRejoin}>Rejoin sync</button> :
+          <button type="button" className="primary-button" disabled={busy} onClick={onSyncNow}>Sync now</button>}
       <button type="button" className="secondary-button" disabled={busy} aria-pressed={status.options.paused} onClick={onPause}>
         {status.options.paused ? "Resume automatic sync" : "Pause automatic sync"}
       </button>
@@ -626,7 +639,7 @@ function SyncDevices({ devices, disabled, onRemove }: {
       <span className="authoring-muted">{device.retired ? "Removed" : `Last synced: ${formatTime(device.lastSeenAt)}`}</span>
       {!device.isSelf && !device.retired ? removing === device.writerId ?
         <span role="group" aria-label={`Remove ${device.name}?`} className="sync-panel__confirm">
-          <span>Changes from {device.name} are ignored from now on. If it syncs again it joins as a new device and nothing it has is lost.</span>
+          <span>Changes from {device.name} are ignored from now on. It stops syncing until someone chooses Rejoin sync on it, and nothing it has is lost.</span>
           <button type="button" className="secondary-button" onClick={() => setRemoving(null)}>Keep device</button>
           <button type="button" className="danger-button" disabled={disabled} onClick={() => { setRemoving(null); onRemove(device); }}>Remove device</button>
         </span> :

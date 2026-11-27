@@ -531,6 +531,14 @@ impl Engine<'_> {
                     .push("Ignored a device removal record that failed verification.".into());
             }
         }
+        if retired.contains(&identity.writer_id) {
+            // Another device removed this one. It stops instead of re-enrolling
+            // on its own; only an explicit rejoin brings it back.
+            self.store.transaction(|transaction| {
+                store::set_meta(transaction, store::META_DEVICE_REMOVED, &true)
+            })?;
+            return Err(device_removed());
+        }
         let listed = self.backend.list("objects/")?;
         if listed.len() > MAX_LISTED_OBJECTS {
             return Err(AppError::InvalidData(
@@ -543,13 +551,13 @@ impl Engine<'_> {
             .collect();
         self.check_cancel()?;
 
-        // Writer identity: a newer generation of our own, or a removal record,
-        // means this application data was restored, copied, or retired.
+        // Writer identity: a newer generation of our own means this application
+        // data was restored or copied.
         let mut remotes: Vec<Remote> = Vec::new();
         let own_max = heads
             .get(&identity.writer_id)
             .and_then(|generations| generations.last().copied());
-        let mut rotate = retired.contains(&identity.writer_id);
+        let mut rotate = false;
         if let Some(own_max) = own_max.filter(|own_max| *own_max > identity.generation) {
             let interrupted = journal.as_ref().filter(|journal| {
                 journal.writer_id == identity.writer_id
@@ -587,7 +595,7 @@ impl Engine<'_> {
             }
             report.rotated = true;
             report.warnings.push(
-                "This device's sync data was restored, copied, or removed elsewhere. It re-enrolled under a new identity; differing files are kept as conflict copies."
+                "This device's sync data was restored or copied. It re-enrolled under a new identity; differing files are kept as conflict copies."
                     .into(),
             );
         }
@@ -1739,6 +1747,46 @@ fn segment_ok(value: &str) -> bool {
         && value != "."
         && value != ".."
         && !value.chars().any(char::is_control)
+}
+
+/// The error a device that another device removed reports until it rejoins.
+pub(crate) fn device_removed() -> AppError {
+    AppError::State("This device was removed from sync. Rejoin to continue.".into())
+}
+
+/// Brings a removed device back under a fresh writer ID. Its whole local
+/// state becomes unconfirmed, the comparison a restored or copied device gets,
+/// so every entry is compared as concurrent with the other devices and
+/// nothing on either side is lost.
+pub(crate) fn rejoin(store: &Store) -> AppResult<()> {
+    let writer_id = random_hex_id()?;
+    store.transaction(|transaction| {
+        let removed: bool =
+            store::get_meta(transaction, store::META_DEVICE_REMOVED)?.unwrap_or(false);
+        if !removed {
+            return Err(AppError::State(
+                "This device has not been removed from sync.".into(),
+            ));
+        }
+        let before = store::load_index(transaction)?;
+        let mut index = before.clone();
+        for row in index.values_mut() {
+            row.unconfirmed = true;
+        }
+        store::write_index_changes(transaction, &before, &index)?;
+        store::set_meta(
+            transaction,
+            store::META_IDENTITY,
+            &Identity {
+                writer_id: writer_id.clone(),
+                counter: 0,
+                generation: 0,
+            },
+        )?;
+        store::set_meta(transaction, store::META_DEVICE_REMOVED, &false)?;
+        store::set_meta(transaction, store::META_PUBLISH_PENDING, &true)?;
+        store::clear_journal(transaction)
+    })
 }
 
 /// Resolves a pending conflict with a new local version that dominates both

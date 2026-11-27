@@ -21,6 +21,8 @@ pub(crate) const META_HISTORY_WATERMARKS: &str = "history-watermarks";
 pub(crate) const META_PUBLISH_PENDING: &str = "publish-pending";
 /// Sync IDs of vaults whose folder held Denote's `.denote` folder when scanned.
 pub(crate) const META_VAULT_MARKERS: &str = "vault-markers";
+/// Set when this device found its own removal record; cleared by a rejoin.
+pub(crate) const META_DEVICE_REMOVED: &str = "device-removed";
 /// Deletions held back per vault sync ID; see [`DeletionHold`].
 pub(crate) const META_DELETION_HOLDS: &str = "deletion-holds";
 

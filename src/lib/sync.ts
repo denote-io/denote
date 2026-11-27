@@ -95,7 +95,8 @@ export interface SyncStatusView {
   options: SyncOptions;
   progress: null | { phase: SyncPhase; done: number; total: number };
   lastRun: null | SyncLastRun;
-  device: null | { writerId: string; name: string };
+  /** `removed`: another device removed this one; it syncs again only after a rejoin. */
+  device: null | { writerId: string; name: string; removed: boolean };
   devices: SyncDevice[];
   vaults: SyncVault[];
   conflicts: SyncConflict[];

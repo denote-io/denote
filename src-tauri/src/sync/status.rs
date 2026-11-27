@@ -98,6 +98,8 @@ impl LastRunRecord {
 pub(crate) struct DeviceView {
     pub writer_id: String,
     pub name: String,
+    /// Another device removed this one; it syncs again only after a rejoin.
+    pub removed: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]

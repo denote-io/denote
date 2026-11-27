@@ -15,6 +15,7 @@
 .sync-panel__inline { display: inline-flex; flex-wrap: wrap; align-items: end; gap: 8px; }
 .sync-panel__confirm { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--danger); border-radius: 5px; }
 .sync-panel__warning { padding: 8px 10px; border: 1px solid var(--warning); border-radius: 5px; background: var(--panel-bg); }
+.sync-panel__removed { display: grid; gap: 4px; padding: 8px 10px; border: 1px solid var(--danger); border-radius: 5px; }
 .sync-panel__strength { color: var(--text-secondary); }
 .sync-panel__strength[data-strength="too-short"], .sync-panel__strength[data-strength="weak"] { color: var(--danger); }
 .sync-panel__details > form { margin-top: 12px; }
@@ -22,6 +23,6 @@
 .sync-dialog[open] { display: flex; flex-direction: column; }
 .sync-dialog > .sensitive-tool-panel { display: flex; flex-direction: column; min-height: 0; max-height: calc(100vh - 60px); }
 @media (forced-colors: active) {
-  .sync-panel__confirm, .sync-panel__warning { border-color: CanvasText; }
+  .sync-panel__confirm, .sync-panel__warning, .sync-panel__removed { border-color: CanvasText; }
   .sync-panel__strength[data-strength="too-short"], .sync-panel__strength[data-strength="weak"] { color: CanvasText; }
 }

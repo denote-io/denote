@@ -6,7 +6,7 @@ import { SyncPanel } from "./SyncPanel";
 
 const native = vi.hoisted(() => ({
   status: vi.fn(), configure: vi.fn(), connectGoogle: vi.fn(), unlock: vi.fn(), run: vi.fn(), cancel: vi.fn(),
-  setOptions: vi.fn(), mapVault: vi.fn(), resolve: vi.fn(), retire: vi.fn(), changePassphrase: vi.fn(),
+  setOptions: vi.fn(), mapVault: vi.fn(), resolve: vi.fn(), retire: vi.fn(), rejoin: vi.fn(), changePassphrase: vi.fn(),
   disconnect: vi.fn(), chooseFolder: vi.fn(),
   statusHandler: null as ((status: SyncStatusView) => void) | null,
 }));
@@ -15,7 +15,7 @@ vi.mock("../lib/api", async (original) => ({
   api: {
     syncStatus: native.status, syncConfigure: native.configure, syncConnectGoogle: native.connectGoogle,
     syncUnlock: native.unlock, syncRun: native.run, syncCancel: native.cancel, syncSetOptions: native.setOptions,
-    syncMapVault: native.mapVault, syncResolve: native.resolve, syncRetireDevice: native.retire,
+    syncMapVault: native.mapVault, syncResolve: native.resolve, syncRetireDevice: native.retire, syncRejoin: native.rejoin,
     syncChangePassphrase: native.changePassphrase, syncDisconnect: native.disconnect, syncChooseFolder: native.chooseFolder,
     onSyncStatus: vi.fn(async (handler: (status: SyncStatusView) => void) => {
       native.statusHandler = handler;
@@ -40,7 +40,7 @@ function view(overrides: Partial<SyncStatusView> = {}): SyncStatusView {
     lastRun: {
       finishedAt: "2026-11-26T10:00:00Z", ok: true, message: "", uploaded: 1, downloaded: 2, applied: 2, conflicts: 0, skipped: [],
     },
-    device: { writerId: SELF, name: "Synthetic laptop" },
+    device: { writerId: SELF, name: "Synthetic laptop", removed: false },
     devices: [
       { writerId: SELF, name: "Synthetic laptop", lastGeneration: 3, lastSeenAt: "2026-11-26T10:00:00Z", retired: false, isSelf: true },
       { writerId: TABLET, name: "Synthetic tablet", lastGeneration: 7, lastSeenAt: "2026-11-25T09:00:00Z", retired: false, isSelf: false },
@@ -312,6 +312,26 @@ describe("SyncPanel when configured", () => {
       .getByRole("button", { name: "Apply deletions" }));
     expect(native.mapVault).toHaveBeenCalledWith(PLUGIN, { action: "confirm-deletions", syncId: "sync-alpha" });
     expect(screen.getByRole("button", { name: "Stop syncing Alpha notes" })).toBeInTheDocument();
+  });
+
+  it("offers only Rejoin sync while this device is removed", async () => {
+    const user = userEvent.setup();
+    const message = "Application state error: This device was removed from sync. Rejoin to continue.";
+    native.status.mockResolvedValue(view({
+      state: "error",
+      device: { writerId: SELF, name: "Synthetic laptop", removed: true },
+      lastRun: { finishedAt: "2026-11-26T10:00:00Z", ok: false, message, uploaded: 0, downloaded: 0, applied: 0, conflicts: 0, skipped: [] },
+    }));
+    native.rejoin.mockResolvedValue(view());
+    render(<SyncPanel pluginId={PLUGIN} onClose={vi.fn()} />);
+    expect(await screen.findByText("This device was removed from sync. Rejoin to continue.")).toBeInTheDocument();
+    expect(screen.getByText("Needs attention")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sync now" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Rejoin sync" }));
+    expect(native.rejoin).toHaveBeenCalledWith(PLUGIN);
+    expect(native.run).not.toHaveBeenCalled();
+    expect(await screen.findByRole("button", { name: "Sync now" })).toBeInTheDocument();
+    expect(screen.getByText(/rejoined sync/)).toBeInTheDocument();
   });
 
   it("removes another device only after confirmation and never offers to remove this device", async () => {

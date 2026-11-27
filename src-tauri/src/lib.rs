@@ -371,6 +371,7 @@ pub fn run() {
             sync::commands::sync_resolve,
             sync::commands::sync_put_preferences,
             sync::commands::sync_retire_device,
+            sync::commands::sync_rejoin,
             sync::commands::sync_change_passphrase,
             sync::commands::sync_disconnect,
             sync::commands::sync_choose_folder,

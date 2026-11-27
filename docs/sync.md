@@ -154,8 +154,11 @@ ID.
   64 MiB. Larger vault files are reported and skipped.
 - **Passphrase change** rewraps the same master key with a new salt. It does
   not rotate the master key; a device that once knew the passphrase can still
-  decrypt everything it downloaded or can download. Retiring a device prevents
-  its future publications from being merged; it does not revoke access.
+  decrypt everything it downloaded or can download. Removing (retiring) a
+  device makes every device ignore what it publishes under its removed writer
+  ID, and the removed device stops syncing until someone chooses **Rejoin
+  sync** on it (see "Device retirement"); it does not revoke access, because
+  that device still holds the key.
 - The passphrase is never stored remotely. **Remember on this device** stores
   the unwrapped master key in the operating-system credential store under the
   reserved host namespace `host-sync.` (`host-sync.master-key`, and the
@@ -207,8 +210,11 @@ seen from every known writer with its device name, the vault mapping (remote
 vault sync ID to local vault scope ID), which vault folders held a `.denote`
 folder when scanned, deletions held back for confirmation, the local index,
 pending conflicts,
-plugin suggestions, the renderer's portable preferences, options, and a crash
-journal. Counter, index, and journal changes commit in one transaction.
+plugin suggestions, the renderer's portable preferences, options, whether
+another device removed this one, and a crash journal. The journal is written in
+its own transaction before a generation is uploaded; once the upload and
+`flush` succeed, one transaction commits the new generation, counter, index, and
+the cleared journal together (step 7).
 
 For every entry key the index holds the merged entry this device publishes and
 the **observed** state: the value the local disk, database, or plugin last had,
@@ -228,8 +234,11 @@ One cycle:
    master key available. One cycle runs at a time. A cycle that waits for
    another one checks all of this again once it may start, and a cancellation
    issued while it waits cancels it too.
-2. **Refresh.** `backend.refresh()`, then list `heads/` and `retired/`. For
-   each non-retired writer pick the highest generation not lower than the last
+2. **Refresh.** `backend.refresh()`, then list `heads/` and `retired/`. A
+   device that finds a verified retirement record for its own writer records
+   that it was removed and stops with the error "This device was removed from
+   sync. Rejoin to continue." before scanning or applying anything (see "Device
+   retirement"). For each non-retired writer pick the highest generation not lower than the last
    one applied (a lower one is a rollback and is refused). If its snapshot or
    any object it references cannot be read and verified, fall back to that
    writer's previous complete generation and report it; never treat missing
@@ -331,9 +340,16 @@ concurrent, so nothing is lost and divergent files become conflict copies.
 ### Device retirement
 
 **Remove device** in the panel writes `retired/<writer>`. Retired writers'
-heads are ignored. A retired device that syncs again detects the record and
-re-enrolls under a new writer ID, with the same unconfirmed comparison. Tombstones are retained
-indefinitely and objects are never deleted automatically in format 1.
+heads are ignored by every device. A removed device that syncs again finds its
+own record and stops: its state is `error`, `device.removed` is `true`, the
+last run says "This device was removed from sync. Rejoin to continue.", and
+neither scheduled nor manual cycles touch storage or its vaults until the user
+chooses **Rejoin sync** on it (`sync_rejoin`). Rejoining enrolls a fresh writer
+ID and marks the whole local index unconfirmed, the same comparison a restored
+or copied device gets, so every local entry is compared as concurrent with the
+other devices and divergent files become conflict copies; nothing is lost. The
+old writer stays retired. Tombstones are retained indefinitely and objects are
+never deleted automatically in format 1.
 
 ### New devices and vault mapping
 
@@ -383,13 +399,14 @@ permission, and are registered in `src-tauri/src/lib.rs`:
 | `sync_resolve` | Resolve a pending encryption-manifest, plugin-setting, or plugin-state conflict |
 | `sync_put_preferences` | Renderer pushes the portable preferences allowlist |
 | `sync_retire_device` | Retire another writer |
+| `sync_rejoin` | Rejoin under a new writer ID after another device removed this one |
 | `sync_change_passphrase` | Rewrap the master key |
 | `sync_disconnect` | Remove local configuration and secrets |
 | `sync_choose_folder` | Open the host folder chooser for a folder backend (`purpose: "backend"`) or a `map-new` vault folder (`purpose: "vault"`); returns the absolute path or `null` when cancelled |
 
 Events: `denote://sync-status` carries the status view after every state
-change (setup, unlock, options, mapping, resolution, retirement, passphrase
-change, disconnect, and a cycle's start, progress, and end), and
+change (setup, unlock, options, mapping, resolution, retirement, rejoin,
+passphrase change, disconnect, and a cycle's start, progress, and end), and
 `denote://sync-applied` lists the vault roots (the exact `vaults.path` /
 `WorkspaceSnapshot.vaultPath` string), preference keys, and plugin IDs a cycle
 changed so the renderer can refresh trees, apply preferences, and restart
@@ -451,7 +468,8 @@ interface SyncStatusView {
                      done: number; total: number };
   lastRun: null | { finishedAt: string; ok: boolean; message: string; uploaded: number;
                     downloaded: number; applied: number; conflicts: number; skipped: string[] };
-  device: null | { writerId: string; name: string };
+  device: null | { writerId: string; name: string;
+                   removed: boolean };   // removed by another device; rejoin to sync
   devices: { writerId: string; name: string; lastGeneration: number; lastSeenAt: string | null;
              retired: boolean; isSelf: boolean }[];
   vaults: { syncId: string | null; name: string; scopeId: string | null; path: string | null;
@@ -477,6 +495,7 @@ interface SyncStatusView {
 // sync_resolve(pluginId, conflictId: string, choice: "local" | "remote") -> SyncStatusView
 // sync_put_preferences(pluginId, preferences: Record<string, string | null>) -> void
 // sync_retire_device(pluginId, writerId: string) -> SyncStatusView
+// sync_rejoin(pluginId) -> SyncStatusView        (only while device.removed)
 // sync_change_passphrase(pluginId, current: string, next: string) -> SyncStatusView
 // sync_disconnect(pluginId) -> SyncStatusView
 // sync_choose_folder(pluginId, purpose: "backend" | "vault") -> string | null

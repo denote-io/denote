@@ -178,8 +178,13 @@ remote** for each. A vault with an encryption conflict pauses until you choose.
 **Devices** lists every device that has synced, with the time it last synced.
 **Remove** (with confirmation) makes the other devices ignore what a lost or
 retired device publishes from now on. It does not take back what that device
-already downloaded. If a removed device syncs again it joins as a new device and
-nothing it holds is lost.
+already downloaded.
+
+A removed device that tries to sync again stops and shows **This device was
+removed from sync. Rejoin to continue.** It does not sync, automatically or with
+**Sync now**, until you choose **Rejoin sync** on it. Rejoining makes it a new
+device: its files are compared with your other devices, and versions that
+differ are kept as conflict copies, so nothing it holds is lost.
 
 ## Passphrase
 

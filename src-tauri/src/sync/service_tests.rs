@@ -351,7 +351,7 @@ fn devices_set_up_join_map_sync_retire_and_disconnect() {
         BTreeMap::from([("denote-theme".into(), Some("dark".into()))])
     );
 
-    // Removing the desk makes it re-enroll under a new identity on its next run.
+    // Removing the desk stops it until it rejoins explicitly.
     let desk_writer = desk
         .service
         .status(PLUGIN)
@@ -373,14 +373,36 @@ fn devices_set_up_join_map_sync_retire_and_disconnect() {
             .iter()
             .any(|device| device.writer_id == desk_writer && device.retired)
     );
-    let status = desk.run();
-    assert_ne!(status.device.unwrap().writer_id, desk_writer);
+    for _ in 0..2 {
+        let error = loop {
+            match desk.service.run_now(PLUGIN) {
+                Err(error) if error.to_string().contains("cancelled") => continue,
+                result => break result.unwrap_err(),
+            }
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("This device was removed from sync. Rejoin to continue."),
+            "{error}"
+        );
+    }
+    let status = desk.service.status(PLUGIN).unwrap();
+    assert_eq!(status.state, SyncState::Error);
+    let device = status.device.unwrap();
+    assert!(device.removed);
+    assert_eq!(device.writer_id, desk_writer);
     assert!(
-        status
-            .warnings
-            .iter()
-            .any(|warning| warning.contains("re-enrolled"))
+        laptop.service.rejoin(PLUGIN).is_err(),
+        "only a removed device rejoins"
     );
+    let status = desk.service.rejoin(PLUGIN).unwrap();
+    let device = status.device.unwrap();
+    assert!(!device.removed);
+    assert_ne!(device.writer_id, desk_writer);
+    let status = desk.run();
+    assert!(status.last_run.unwrap().ok);
+    assert_eq!(status.state, SyncState::Idle);
 
     assert!(
         laptop

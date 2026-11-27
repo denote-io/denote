@@ -143,6 +143,7 @@ export const api = {
     invoke<void>("sync_put_preferences", { pluginId, preferences }),
   syncRetireDevice: (pluginId: string, writerId: string) =>
     invoke<SyncStatusView>("sync_retire_device", { pluginId, writerId }),
+  syncRejoin: (pluginId: string) => invoke<SyncStatusView>("sync_rejoin", { pluginId }),
   syncChangePassphrase: (pluginId: string, current: string, next: string) =>
     invoke<SyncStatusView>("sync_change_passphrase", { pluginId, current, next }),
   syncDisconnect: (pluginId: string) => invoke<SyncStatusView>("sync_disconnect", { pluginId }),
