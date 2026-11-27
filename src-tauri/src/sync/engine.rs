@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 
 use super::{
     apply::{Change, DirectoryCache, Expected, Outcome, apply_file},
-    backend::{Backend, PutMode, PutOutcome},
+    backend::{Backend, PutMode, PutOutcome, put_new},
     config::{MAX_PREFERENCE_BYTES, PREFERENCE_KEYS, PersistedConfig},
     crypto::{
         FORMAT_VERSION, Keys, MAX_FILE_BYTES, MAX_SNAPSHOT_BYTES, parse_header, random_hex_id,
@@ -330,11 +330,45 @@ impl Engine<'_> {
             .backend
             .get(&head_key(writer, generation))?
             .ok_or_else(|| AppError::NotFound("A sync snapshot is missing".into()))?;
+        self.open_snapshot(writer, generation, &envelope)
+    }
+
+    /// Verifies and decodes a snapshot envelope. A failure means the content
+    /// is damaged or was not sealed for this writer and generation.
+    fn open_snapshot(&self, writer: &str, generation: u64, envelope: &[u8]) -> AppResult<Snapshot> {
         if envelope.len() as u64 > MAX_SNAPSHOT_BYTES + 64 {
             return Err(AppError::InvalidData("A sync snapshot is too large".into()));
         }
-        let plaintext = self.keys.open_head(writer, generation, &envelope)?;
+        let plaintext = self.keys.open_head(writer, generation, envelope)?;
         Snapshot::decode(&plaintext, self.keys.repository_id(), writer, generation)
+    }
+
+    /// Reads the generation of this device's own writer that an interrupted
+    /// publish may have written. Storage failures are errors, so a timeout or
+    /// a server error never re-enrolls the device; `None` means the stored
+    /// generation provably is not the one this device was publishing: it does
+    /// not open with this repository's keys, or it carries versions this
+    /// device never issued.
+    fn recover_interrupted(
+        &self,
+        writer: &str,
+        generation: u64,
+        counter: u64,
+    ) -> AppResult<Option<Snapshot>> {
+        let envelope = self.backend.get(&head_key(writer, generation))?.ok_or_else(|| {
+            AppError::State(
+                "This device's last publication is listed in sync storage but could not be read yet. Sync will try again."
+                    .into(),
+            )
+        })?;
+        let Ok(snapshot) = self.open_snapshot(writer, generation, &envelope) else {
+            return Ok(None);
+        };
+        let issued_here = snapshot
+            .entries
+            .values()
+            .all(|entry| entry.vv.get(writer).is_none_or(|issued| *issued <= counter));
+        Ok(issued_here.then_some(snapshot))
     }
 
     fn complete(snapshot: &Snapshot, objects: &HashSet<[u8; 32]>) -> bool {
@@ -493,20 +527,21 @@ impl Engine<'_> {
             .and_then(|generations| generations.last().copied());
         let mut rotate = retired.contains(&identity.writer_id);
         if let Some(own_max) = own_max.filter(|own_max| *own_max > identity.generation) {
-            let interrupted = journal.as_ref().is_some_and(|journal| {
+            let interrupted = journal.as_ref().filter(|journal| {
                 journal.writer_id == identity.writer_id
                     && journal.generation == own_max
                     && own_max == identity.generation + 1
             });
-            match interrupted
-                .then(|| self.load_snapshot(&identity.writer_id, own_max))
-                .transpose()
-            {
-                Ok(Some(snapshot)) => {
+            let recovered = match interrupted {
+                Some(journal) => {
+                    self.recover_interrupted(&identity.writer_id, own_max, journal.counter)?
+                }
+                None => None,
+            };
+            match (recovered, interrupted) {
+                (Some(snapshot), Some(journal)) => {
                     identity.generation = own_max;
-                    identity.counter = identity
-                        .counter
-                        .max(journal.as_ref().map(|journal| journal.counter).unwrap_or(0));
+                    identity.counter = identity.counter.max(journal.counter);
                     remotes.push(Remote {
                         writer: identity.writer_id.clone(),
                         generation: own_max,
@@ -1447,10 +1482,10 @@ impl Engine<'_> {
                     },
                 )
             })?;
-            let outcome = self.backend.put(
+            let outcome = put_new(
+                self.backend,
                 &head_key(&identity.writer_id, generation),
                 &envelope,
-                PutMode::CreateOnly,
             )?;
             if outcome == PutOutcome::AlreadyExists {
                 self.store

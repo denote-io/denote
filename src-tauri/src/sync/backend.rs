@@ -41,6 +41,21 @@ pub(crate) trait Backend: Send + Sync {
     }
 }
 
+/// Writes `bytes` under a key that must not exist yet. A key that already
+/// holds exactly these bytes counts as written: a retried request whose first
+/// attempt landed, or a Google Drive duplicate resolved to that first upload,
+/// reports the key as taken although this device wrote it. Sealed envelopes
+/// carry a random nonce, so equal bytes prove the write was this one.
+pub(crate) fn put_new(backend: &dyn Backend, key: &str, bytes: &[u8]) -> AppResult<PutOutcome> {
+    match backend.put(key, bytes, PutMode::CreateOnly)? {
+        PutOutcome::Written => Ok(PutOutcome::Written),
+        PutOutcome::AlreadyExists if backend.get(key)?.as_deref() == Some(bytes) => {
+            Ok(PutOutcome::Written)
+        }
+        PutOutcome::AlreadyExists => Ok(PutOutcome::AlreadyExists),
+    }
+}
+
 const MAX_KEY_LENGTH: usize = 512;
 
 /// Accepts `[a-z0-9._/-]` segments without empty, `.`, or `..` parts.

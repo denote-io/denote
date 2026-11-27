@@ -100,6 +100,11 @@ Requirements every backend meets and the conformance suite in
   without a native conditional write (some WebDAV and S3-compatible servers)
   check, write, and re-read; the protocol never depends on `CreateOnly` for
   safety except for `repository.json`, which is re-read and adopted.
+- A snapshot generation is published with `put_new`: when `CreateOnly` reports
+  `AlreadyExists`, the key is read back, and if it holds exactly the envelope
+  this device sealed (a retried request whose first attempt landed, or a Google
+  Drive duplicate resolved to that first upload) it counts as written. Every
+  envelope has a random nonce, so equal bytes prove it is this write.
 - `list` follows every page. A missing key is never interpreted as deletion.
 - Network failures, throttling, and authentication failures are errors, never
   empty results.
@@ -289,7 +294,12 @@ One cycle:
    index, and cleared journal. A cycle that changed nothing publishes nothing,
    so settled devices stop writing generations. If a device finds its own
    writer's generation that the journal says it was publishing when it was
-   interrupted, it merges that snapshot as its own instead of re-enrolling.
+   interrupted, it merges that snapshot as its own instead of re-enrolling. A
+   storage error while reading that generation (a timeout, throttling, a server
+   error, or a listed key that cannot be read yet) ends the cycle, keeps the
+   journal, and is retried; only a generation that does not open with the
+   repository keys, or that carries versions above the journal's counter, is
+   treated as another device's and re-enrolls this one.
 
 ### Writer identity
 

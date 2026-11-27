@@ -928,3 +928,134 @@ fn an_original_is_not_replaced_while_its_conflict_copy_cannot_be_written() {
         "edited on laptop"
     );
 }
+
+/// How a request that reached storage looks to the device that sent it.
+#[derive(Clone, Copy)]
+enum LostReply {
+    /// The value was stored, but the response timed out.
+    Timeout,
+    /// The value was stored, but a retry of the same request found the key taken.
+    Taken,
+}
+
+/// Wraps a memory backend whose head publications land but whose replies are
+/// lost, and whose reads of chosen keys fail like an unreachable server.
+struct LostReplies<'a> {
+    inner: &'a MemoryBackend,
+    heads: Option<LostReply>,
+    failing_gets: Vec<String>,
+}
+
+impl Backend for LostReplies<'_> {
+    fn get(&self, key: &str) -> AppResult<Option<Vec<u8>>> {
+        if self.failing_gets.iter().any(|failing| failing == key) {
+            return Err(AppError::State(format!(
+                "Synthetic server error (HTTP 503) for {key}"
+            )));
+        }
+        self.inner.get(key)
+    }
+
+    fn put(&self, key: &str, bytes: &[u8], mode: PutMode) -> AppResult<PutOutcome> {
+        let outcome = self.inner.put(key, bytes, mode)?;
+        match (key.starts_with("heads/"), self.heads) {
+            (true, Some(LostReply::Timeout)) => Err(AppError::State(format!(
+                "Synthetic timeout after storing {key}"
+            ))),
+            (true, Some(LostReply::Taken)) => Ok(PutOutcome::AlreadyExists),
+            _ => Ok(outcome),
+        }
+    }
+
+    fn list(&self, prefix: &str) -> AppResult<Vec<String>> {
+        self.inner.list(prefix)
+    }
+
+    fn delete(&self, key: &str) -> AppResult<()> {
+        self.inner.delete(key)
+    }
+}
+
+#[test]
+fn transient_storage_errors_never_re_enroll_after_an_interrupted_publish() {
+    let backend = MemoryBackend::default();
+    let keys = repository(&backend);
+    let laptop = Device::new("Laptop", &keys);
+    let desk = Device::new("Desk", &keys);
+    let (laptop_root, laptop_scope) = laptop.add_vault("Notes");
+    let (desk_root, desk_scope) = desk.add_vault("Notes");
+    laptop.map(VAULT, &laptop_scope);
+    desk.map(VAULT, &desk_scope);
+    write(&laptop_root, "a.md", "alpha");
+    laptop.sync(&backend, &keys);
+    desk.sync(&backend, &keys);
+    let writer = laptop.identity().writer_id;
+
+    // The second generation lands, but the reply times out.
+    fs::remove_file(laptop_root.join("a.md")).unwrap();
+    let lost = LostReplies {
+        inner: &backend,
+        heads: Some(LostReply::Timeout),
+        failing_gets: Vec::new(),
+    };
+    let (result, _) = laptop.try_sync(&lost, &keys, false);
+    assert!(result.is_err());
+    assert!(backend.raw(&head_key(&writer, 2)).is_some());
+    assert_eq!(laptop.identity().generation, 1);
+
+    // Reading it back fails with a server error: retry later, never re-enroll.
+    let unreachable = LostReplies {
+        inner: &backend,
+        heads: None,
+        failing_gets: vec![head_key(&writer, 2)],
+    };
+    let (result, report) = laptop.try_sync(&unreachable, &keys, false);
+    assert!(result.is_err(), "{report:?}");
+    assert!(!report.rotated);
+    assert_eq!(laptop.identity().writer_id, writer);
+
+    let report = laptop.sync(&backend, &keys);
+    assert!(!report.rotated, "{:?}", report.warnings);
+    assert_eq!(laptop.identity().writer_id, writer);
+    assert!(laptop.identity().generation >= 2);
+    desk.sync(&backend, &keys);
+    assert!(
+        !desk_root.join("a.md").exists(),
+        "the deletion published by the interrupted generation stays deleted"
+    );
+}
+
+#[test]
+fn a_retried_head_upload_that_already_landed_counts_as_published() {
+    let backend = MemoryBackend::default();
+    let keys = repository(&backend);
+    let laptop = Device::new("Laptop", &keys);
+    let desk = Device::new("Desk", &keys);
+    let (laptop_root, laptop_scope) = laptop.add_vault("Notes");
+    let (desk_root, desk_scope) = desk.add_vault("Notes");
+    laptop.map(VAULT, &laptop_scope);
+    desk.map(VAULT, &desk_scope);
+    write(&laptop_root, "a.md", "alpha");
+    write(&laptop_root, "b.md", "beta");
+    laptop.sync(&backend, &keys);
+    desk.sync(&backend, &keys);
+    let writer = laptop.identity().writer_id;
+
+    fs::remove_file(laptop_root.join("b.md")).unwrap();
+    let retried = LostReplies {
+        inner: &backend,
+        heads: Some(LostReply::Taken),
+        failing_gets: Vec::new(),
+    };
+    let (result, report) = laptop.try_sync(&retried, &keys, false);
+    assert!(result.is_ok(), "{result:?}");
+    assert_eq!(report.published, Some(2));
+    assert_eq!(laptop.identity().generation, 2);
+
+    let report = laptop.sync(&backend, &keys);
+    assert!(!report.rotated, "{:?}", report.warnings);
+    assert_eq!(laptop.identity().writer_id, writer);
+    desk.sync(&backend, &keys);
+    assert!(!desk_root.join("b.md").exists());
+    assert_eq!(tree(&desk_root), tree(&laptop_root));
+}
